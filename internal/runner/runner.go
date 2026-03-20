@@ -75,7 +75,12 @@ func (r *Runner) reconcile(ctx context.Context) error {
 
 	var errs []error
 	for _, e := range r.entries {
-		expanded := expandRules(e.rules, resolved, r.logger)
+		expanded, err := expandRules(e.rules, resolved, r.logger)
+		if err != nil {
+			r.logger.Error("expand rules", "provider", e.provider.Name(), "err", err)
+			errs = append(errs, err)
+			continue
+		}
 		result, err := e.provider.Reconcile(ctx, expanded)
 		if err != nil {
 			r.logger.Error("reconcile failed", "provider", e.provider.Name(), "err", err)
@@ -92,7 +97,7 @@ func (r *Runner) reconcile(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.Logger) []rule.Rule {
+func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.Logger) ([]rule.Rule, error) {
 	var out []rule.Rule
 	for _, r := range rules {
 		expanded := r
@@ -109,9 +114,23 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.L
 			logger.Warn("rule skipped: destination data refs resolved to empty", "rule", r.Name)
 			continue
 		}
+
+		// Validate addresses after expansion — providers should not
+		// need to know about data source references.
+		for _, s := range expanded.Source {
+			if _, err := rule.ParseAddress(s); err != nil {
+				return nil, fmt.Errorf("rule %q source: %w", r.Name, err)
+			}
+		}
+		for _, d := range expanded.Destination {
+			if _, err := rule.ParseAddress(d); err != nil {
+				return nil, fmt.Errorf("rule %q destination: %w", r.Name, err)
+			}
+		}
+
 		out = append(out, expanded)
 	}
-	return out
+	return out, nil
 }
 
 // hasDataRef reports whether any element is a data.* reference.

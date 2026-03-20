@@ -21,6 +21,7 @@ func New(key string, cfg Config) *DataSource {
 	s := &DataSource{key: key, hostnames: cfg.Hostnames}
 	if cfg.Nameserver != nil && *cfg.Nameserver != "" {
 		nameserver := *cfg.Nameserver
+		s.resolver.PreferGo = true
 		s.resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(ctx, network, nameserver)

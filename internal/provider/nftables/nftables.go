@@ -42,30 +42,10 @@ func New(cfg Config) *Provider {
 	}
 }
 
-func ValidateRule(r rule.Rule) error {
-	if r.Protocol != "" && !rule.ValidProtocols[r.Protocol] {
-		return fmt.Errorf("invalid protocol %q (must be tcp, udp, or icmp)", r.Protocol)
-	}
-	for _, p := range r.SrcPort {
-		if _, _, err := rule.ParsePortOrRange(p); err != nil {
-			return fmt.Errorf("invalid src_port %q: %w", p, err)
-		}
-	}
-	for _, p := range r.DstPort {
-		if _, _, err := rule.ParsePortOrRange(p); err != nil {
-			return fmt.Errorf("invalid dst_port %q: %w", p, err)
-		}
-	}
-	for _, s := range r.Source {
-		if _, err := rule.ParseAddress(s); err != nil {
-			return fmt.Errorf("invalid source: %w", err)
-		}
-	}
-	for _, d := range r.Destination {
-		if _, err := rule.ParseAddress(d); err != nil {
-			return fmt.Errorf("invalid destination: %w", err)
-		}
-	}
+// ValidateRule checks nftables-specific rule constraints.
+// Universal validation (protocol, port syntax, addresses) is handled
+// by config.validate() and the runner's post-expansion checks.
+func ValidateRule(_ rule.Rule) error {
 	return nil
 }
 

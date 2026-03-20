@@ -215,6 +215,9 @@ func buildEvalContext(body hcl.Body) (*hcl.EvalContext, error) {
 	}
 
 	// Evaluate locals blocks in order (inter-block references allowed).
+	// Within each block, use multi-pass evaluation so intra-block references
+	// resolve regardless of map iteration order (Terraform evaluates locals
+	// via a dependency DAG; multi-pass is the simpler equivalent).
 	ctx := &hcl.EvalContext{Variables: vars, Functions: funcs}
 	localVars := make(map[string]cty.Value)
 	for _, lb := range labels.Locals {
@@ -222,14 +225,39 @@ func buildEvalContext(body hcl.Body) (*hcl.EvalContext, error) {
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("locals: %s", diags.Error())
 		}
-		for name, attr := range attrs {
-			val, diags := attr.Expr.Value(ctx)
-			if diags.HasErrors() {
-				return nil, fmt.Errorf("local.%s: %s", name, diags.Error())
-			}
-			localVars[name] = val
+
+		// Multi-pass: evaluate what we can, defer the rest, repeat.
+		pending := make(map[string]*hcl.Attribute, len(attrs))
+		for k, v := range attrs {
+			pending[k] = v
 		}
-		if len(localVars) > 0 {
+		for len(pending) > 0 {
+			progress := false
+			// Sorted keys for deterministic error messages.
+			names := make([]string, 0, len(pending))
+			for k := range pending {
+				names = append(names, k)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				val, diags := pending[name].Expr.Value(ctx)
+				if diags.HasErrors() {
+					continue // may depend on another local not yet evaluated
+				}
+				localVars[name] = val
+				delete(pending, name)
+				progress = true
+			}
+			if !progress {
+				// All remaining locals have unresolvable references.
+				names = names[:0]
+				for k := range pending {
+					names = append(names, k)
+				}
+				sort.Strings(names)
+				return nil, fmt.Errorf("local.%s: unresolvable reference (circular or undefined)", names[0])
+			}
+			// Rebuild context so next pass sees newly evaluated locals.
 			vars["local"] = cty.ObjectVal(localVars)
 			ctx = &hcl.EvalContext{Variables: vars, Functions: funcs}
 		}
@@ -288,8 +316,19 @@ func validate(cfg Config) error {
 			return fmt.Errorf("rule[%d] %q: unknown provider type %q", i, r.Name, r.Provider)
 		}
 
-		// Provider-specific validation (ports, addresses, constraints)
-		// happens in each provider's ValidateRule, called from the factory.
+		if r.Protocol != "" && !rule.ValidProtocols[r.Protocol] {
+			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, or icmp)", i, r.Name, r.Protocol)
+		}
+		for _, p := range r.SrcPort {
+			if _, _, err := rule.ParsePortOrRange(p); err != nil {
+				return fmt.Errorf("rule[%d] %q: invalid src_port %q: %w", i, r.Name, p, err)
+			}
+		}
+		for _, p := range r.DstPort {
+			if _, _, err := rule.ParsePortOrRange(p); err != nil {
+				return fmt.Errorf("rule[%d] %q: invalid dst_port %q: %w", i, r.Name, p, err)
+			}
+		}
 	}
 
 	return nil

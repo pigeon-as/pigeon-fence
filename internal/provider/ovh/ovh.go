@@ -56,6 +56,9 @@ func New(cfg Config) *Provider {
 	}
 }
 
+// ValidateRule checks OVH-specific rule constraints.
+// Universal validation (protocol, port syntax, addresses) is handled
+// by config.validate() and the runner's post-expansion checks.
 func ValidateRule(r rule.Rule) error {
 	if r.Direction != "inbound" {
 		return fmt.Errorf("OVH firewall only supports inbound rules")
@@ -69,9 +72,6 @@ func ValidateRule(r rule.Rule) error {
 	if r.Protocol == "" {
 		return fmt.Errorf("protocol is required")
 	}
-	if !rule.ValidProtocols[r.Protocol] {
-		return fmt.Errorf("invalid protocol %q (must be tcp, udp, or icmp)", r.Protocol)
-	}
 	if len(r.DstPort) > 1 {
 		return fmt.Errorf("at most one dst_port per rule")
 	}
@@ -79,30 +79,19 @@ func ValidateRule(r rule.Rule) error {
 		return fmt.Errorf("at most one src_port per rule")
 	}
 	for _, p := range r.DstPort {
-		lo, hi, err := rule.ParsePortOrRange(p)
-		if err != nil {
-			return fmt.Errorf("invalid dst_port %q: %w", p, err)
-		}
+		lo, hi, _ := rule.ParsePortOrRange(p)
 		if lo != hi {
 			return fmt.Errorf("dst_port %q: port ranges not supported by OVH API", p)
 		}
 	}
 	for _, p := range r.SrcPort {
-		lo, hi, err := rule.ParsePortOrRange(p)
-		if err != nil {
-			return fmt.Errorf("invalid src_port %q: %w", p, err)
-		}
+		lo, hi, _ := rule.ParsePortOrRange(p)
 		if lo != hi {
 			return fmt.Errorf("src_port %q: port ranges not supported by OVH API", p)
 		}
 	}
 	if len(r.Source) > 1 {
 		return fmt.Errorf("at most one source per rule")
-	}
-	for _, s := range r.Source {
-		if _, err := rule.ParseAddress(s); err != nil {
-			return fmt.Errorf("invalid source: %w", err)
-		}
 	}
 	if len(r.Destination) > 0 {
 		return fmt.Errorf("destination is not supported (the ip field is the destination)")

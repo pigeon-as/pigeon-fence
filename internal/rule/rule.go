@@ -94,7 +94,7 @@ func SplitByFamily(r Rule) ([]Rule, error) {
 	}
 
 	if len(rules) == 0 {
-		return []Rule{r}, nil
+		return nil, fmt.Errorf("incompatible address families: source and destination have no overlapping IP family")
 	}
 	return rules, nil
 }
