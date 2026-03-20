@@ -242,7 +242,15 @@ func buildEvalContext(body hcl.Body) (*hcl.EvalContext, error) {
 			for _, name := range names {
 				val, diags := pending[name].Expr.Value(ctx)
 				if diags.HasErrors() {
-					continue // may depend on another local not yet evaluated
+					// Only defer if all errors look like unresolved
+					// dependencies (unknown variable/attribute). Real
+					// errors (type mismatch, bad function call) surface
+					// immediately so they aren't masked as "unresolvable
+					// reference".
+					if hasFatalDiag(diags) {
+						return nil, fmt.Errorf("local.%s: %s", name, diags.Error())
+					}
+					continue // dependency not yet available
 				}
 				localVars[name] = val
 				delete(pending, name)
@@ -332,4 +340,22 @@ func validate(cfg Config) error {
 	}
 
 	return nil
+}
+
+// hasFatalDiag returns true if any error diagnostic is NOT a dependency error
+// (i.e., not an unresolved variable/attribute). Dependency errors have
+// summary "Unknown variable" or "Unsupported attribute" in HCL v2.
+func hasFatalDiag(diags hcl.Diagnostics) bool {
+	for _, d := range diags {
+		if d.Severity != hcl.DiagError {
+			continue
+		}
+		switch d.Summary {
+		case "Unknown variable", "Unsupported attribute":
+			// Likely an unresolved dependency — defer.
+		default:
+			return true
+		}
+	}
+	return false
 }

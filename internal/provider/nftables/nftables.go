@@ -173,9 +173,18 @@ func (p *Provider) checkDrift(conn *nftables.Conn, desiredHashes []string, expec
 	}
 	if ourChain == nil {
 		if len(desiredHashes) == 0 {
+			// No chain, no rules desired — also verify no stale jumps.
+			if reason := p.checkStaleJumps(conn, chains, expectedJumps); reason != "" {
+				return true, reason
+			}
 			return false, ""
 		}
 		return true, "chain missing"
+	}
+
+	// Chain exists but no rules desired — need cleanup.
+	if len(desiredHashes) == 0 {
+		return true, "chain exists but no rules desired"
 	}
 
 	rules, err := conn.GetRules(ourChain.Table, ourChain)
@@ -206,7 +215,30 @@ func (p *Provider) checkDrift(conn *nftables.Conn, desiredHashes []string, expec
 		}
 	}
 
+	// Check for stale jumps in chains we no longer expect.
+	if reason := p.checkStaleJumps(conn, chains, expectedJumps); reason != "" {
+		return true, reason
+	}
+
 	return false, ""
+}
+
+// checkStaleJumps detects jump rules to our chain in base chains we don't expect.
+func (p *Provider) checkStaleJumps(conn *nftables.Conn, chains []*nftables.Chain, expectedJumps map[string]bool) string {
+	for _, c := range chains {
+		if c.Table.Name != p.tableName || strings.HasPrefix(c.Name, chainPrefix) || expectedJumps[c.Name] {
+			continue
+		}
+		has, err := p.hasJumpRule(conn, c.Table, c.Name)
+		if err != nil {
+			p.logger.Warn("drift check: failed to check stale jump", "chain", c.Name, "err", err)
+			return fmt.Sprintf("failed to check stale jump in %s: %v", c.Name, err)
+		}
+		if has {
+			return fmt.Sprintf("stale jump rule in %s chain", c.Name)
+		}
+	}
+	return ""
 }
 
 func (p *Provider) hasJumpRule(conn *nftables.Conn, table *nftables.Table, parentChainName string) (bool, error) {
