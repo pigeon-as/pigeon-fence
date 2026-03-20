@@ -119,8 +119,8 @@ func TestMatchProtocol(t *testing.T) {
 		})
 	}
 
-	t.Run("icmpv6 auto-detect", func(t *testing.T) {
-		r := rule.Rule{Protocol: "icmp", Source: []string{"fd00::1"}}
+	t.Run("icmpv6 explicit", func(t *testing.T) {
+		r := rule.Rule{Protocol: "icmpv6"}
 		got, err := matchProtocol(r, nil, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -129,6 +129,22 @@ func TestMatchProtocol(t *testing.T) {
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{syscall.IPPROTO_ICMPV6}},
 		}, got)
+	})
+
+	t.Run("icmp with ipv6 errors", func(t *testing.T) {
+		r := rule.Rule{Protocol: "icmp", Source: []string{"fd00::1"}}
+		_, err := matchProtocol(r, nil, nil)
+		if err == nil {
+			t.Fatal("expected error for icmp with IPv6 addresses")
+		}
+	})
+
+	t.Run("icmpv6 with ipv4 errors", func(t *testing.T) {
+		r := rule.Rule{Protocol: "icmpv6", Source: []string{"10.0.0.1"}}
+		_, err := matchProtocol(r, nil, nil)
+		if err == nil {
+			t.Fatal("expected error for icmpv6 with IPv4 addresses")
+		}
 	})
 
 	t.Run("icmp ipv4 stays ICMP", func(t *testing.T) {
