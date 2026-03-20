@@ -335,6 +335,11 @@ func validate(cfg Config) error {
 		if len(r.Interface) > 15 {
 			return fmt.Errorf("rule[%d] %q: interface name %q too long; maximum length is 15 characters", i, r.Name, r.Interface)
 		}
+		// Ports only make sense for TCP/UDP — transport header offsets are
+		// meaningless for ICMP/ICMPv6 and would match wrong header bytes.
+		if (len(r.SrcPort) > 0 || len(r.DstPort) > 0) && r.Protocol != "tcp" && r.Protocol != "udp" {
+			return fmt.Errorf("rule[%d] %q: src_port/dst_port require protocol \"tcp\" or \"udp\"", i, r.Name)
+		}
 		for _, p := range r.SrcPort {
 			if _, _, err := rule.ParsePortOrRange(p); err != nil {
 				return fmt.Errorf("rule[%d] %q: invalid src_port %q: %w", i, r.Name, p, err)
