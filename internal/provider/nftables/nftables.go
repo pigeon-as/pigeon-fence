@@ -76,6 +76,12 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 		expectedJumps[chain] = true
 	}
 
+	// Pre-flight: verify the base chains we need actually exist.
+	// pigeon-fence never creates base chains ("base skeleton untouched").
+	if err := p.checkBaseChains(expectedJumps); err != nil {
+		return nil, err
+	}
+
 	// checkDrift reads from a separate Conn. The TOCTOU gap is harmless
 	// because applyRules does a full replace (cleanup + rebuild) atomically.
 	conn := &nftables.Conn{}
@@ -303,6 +309,43 @@ func (p *Provider) cleanupChains(conn *nftables.Conn) error {
 	for _, c := range ours {
 		conn.FlushChain(c)
 		conn.DelChain(c)
+	}
+	return nil
+}
+
+// checkBaseChains verifies that every base chain we need to jump into actually
+// exists in the kernel. pigeon-fence never creates base chains — a pre-existing
+// inet filter table with input/output chains is a prerequisite.
+func (p *Provider) checkBaseChains(expectedJumps map[string]bool) error {
+	if len(expectedJumps) == 0 {
+		return nil
+	}
+
+	conn := &nftables.Conn{}
+	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
+	if err != nil {
+		return fmt.Errorf("nftables: cannot list chains: %w "+
+			"(is the nf_tables kernel module loaded?)", err)
+	}
+
+	existing := make(map[string]bool)
+	for _, c := range chains {
+		if c.Table.Name == p.tableName {
+			existing[c.Name] = true
+		}
+	}
+
+	var missing []string
+	for name := range expectedJumps {
+		if !existing[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("nftables: base chain(s) %v not found in inet %s table; "+
+			"pigeon-fence requires a pre-existing base firewall skeleton "+
+			"(nft add table inet filter; nft add chain inet filter input { type filter hook input priority 0 \\; policy accept \\; })",
+			missing, p.tableName)
 	}
 	return nil
 }
