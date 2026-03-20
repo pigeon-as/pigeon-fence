@@ -331,6 +331,10 @@ func validate(cfg Config) error {
 		if r.Protocol != "" && !rule.ValidProtocols[r.Protocol] {
 			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, icmp, or icmpv6)", i, r.Name, r.Protocol)
 		}
+		// Linux IFNAMSIZ is 16 (including null terminator), so max name is 15 chars.
+		if len(r.Interface) > 15 {
+			return fmt.Errorf("rule[%d] %q: interface name %q too long; maximum length is 15 characters", i, r.Name, r.Interface)
+		}
 		for _, p := range r.SrcPort {
 			if _, _, err := rule.ParsePortOrRange(p); err != nil {
 				return fmt.Errorf("rule[%d] %q: invalid src_port %q: %w", i, r.Name, p, err)
