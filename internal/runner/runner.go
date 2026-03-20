@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,8 +105,6 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.L
 		expanded.Source = rule.ExpandDataRefs(r.Source, resolved)
 		expanded.Destination = rule.ExpandDataRefs(r.Destination, resolved)
 
-		// Fail-closed: if a field had data refs but all resolved to nothing,
-		// skip the rule rather than creating a wildcard match.
 		if hasDataRef(r.Source) && len(expanded.Source) == 0 {
 			logger.Warn("rule skipped: source data refs resolved to empty", "rule", r.Name)
 			continue
@@ -115,8 +114,6 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.L
 			continue
 		}
 
-		// Validate addresses after expansion — providers should not
-		// need to know about data source references.
 		for _, s := range expanded.Source {
 			if _, err := rule.ParseAddress(s); err != nil {
 				return nil, fmt.Errorf("rule %q source: %w", r.Name, err)
@@ -127,6 +124,11 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.L
 				return nil, fmt.Errorf("rule %q destination: %w", r.Name, err)
 			}
 		}
+
+		// Canonicalize order so hash drift detection is stable
+		// regardless of data source return order.
+		slices.Sort(expanded.Source)
+		slices.Sort(expanded.Destination)
 
 		out = append(out, expanded)
 	}
