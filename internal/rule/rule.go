@@ -13,7 +13,7 @@ import (
 var ValidActions = map[string]bool{"allow": true, "deny": true}
 
 // ValidProtocols defines the protocols supported by all providers.
-var ValidProtocols = map[string]bool{"tcp": true, "udp": true, "icmp": true}
+var ValidProtocols = map[string]bool{"tcp": true, "udp": true, "icmp": true, "icmpv6": true}
 
 // Rule represents a single firewall rule to be reconciled by a provider.
 type Rule struct {

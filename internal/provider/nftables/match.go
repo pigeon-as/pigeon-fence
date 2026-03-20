@@ -4,7 +4,6 @@ package nftables
 
 import (
 	"fmt"
-	"strings"
 	"syscall"
 
 	"github.com/google/nftables"
@@ -116,7 +115,7 @@ func matchProtocol(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any
 		return nil, nil
 	}
 	var b byte
-	switch strings.ToLower(r.Protocol) {
+	switch r.Protocol {
 	case "tcp":
 		b = syscall.IPPROTO_TCP
 	case "udp":
@@ -127,10 +126,18 @@ func matchProtocol(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any
 			return nil, err
 		}
 		if family == syscall.AF_INET6 {
-			b = syscall.IPPROTO_ICMPV6
-		} else {
-			b = syscall.IPPROTO_ICMP
+			return nil, fmt.Errorf("protocol \"icmp\" is not valid for IPv6 addresses; use \"icmpv6\"")
 		}
+		b = syscall.IPPROTO_ICMP
+	case "icmpv6":
+		family, err := detectFamily(r)
+		if err != nil {
+			return nil, err
+		}
+		if family == syscall.AF_INET {
+			return nil, fmt.Errorf("protocol \"icmpv6\" is not valid for IPv4 addresses; use \"icmp\"")
+		}
+		b = syscall.IPPROTO_ICMPV6
 	default:
 		return nil, fmt.Errorf("unknown protocol %q", r.Protocol)
 	}

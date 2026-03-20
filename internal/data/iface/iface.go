@@ -67,12 +67,12 @@ func (s *DataSource) findInterface() (*net.Interface, error) {
 	for i := range ifaces {
 		addrs, err := ifaces[i].Addrs()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("interface %q addrs: %w", ifaces[i].Name, err)
 		}
 		for _, a := range addrs {
 			p, err := netip.ParsePrefix(a.String())
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("interface %q: unparseable address %q: %w", ifaces[i].Name, a.String(), err)
 			}
 			if p.Addr() == target {
 				return &ifaces[i], nil

@@ -329,7 +329,7 @@ func validate(cfg Config) error {
 		}
 
 		if r.Protocol != "" && !rule.ValidProtocols[r.Protocol] {
-			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, or icmp)", i, r.Name, r.Protocol)
+			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, icmp, or icmpv6)", i, r.Name, r.Protocol)
 		}
 		for _, p := range r.SrcPort {
 			if _, _, err := rule.ParsePortOrRange(p); err != nil {
@@ -339,6 +339,22 @@ func validate(cfg Config) error {
 		for _, p := range r.DstPort {
 			if _, _, err := rule.ParsePortOrRange(p); err != nil {
 				return fmt.Errorf("rule[%d] %q: invalid dst_port %q: %w", i, r.Name, p, err)
+			}
+		}
+
+		// Validate static address literals (non-data.* refs) at load time.
+		for _, s := range r.Source {
+			if !strings.HasPrefix(s, "data.") {
+				if _, err := rule.ParseAddress(s); err != nil {
+					return fmt.Errorf("rule[%d] %q: invalid source address %q: %w", i, r.Name, s, err)
+				}
+			}
+		}
+		for _, d := range r.Destination {
+			if !strings.HasPrefix(d, "data.") {
+				if _, err := rule.ParseAddress(d); err != nil {
+					return fmt.Errorf("rule[%d] %q: invalid destination address %q: %w", i, r.Name, d, err)
+				}
 			}
 		}
 	}
