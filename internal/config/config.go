@@ -275,8 +275,12 @@ func buildEvalContext(body hcl.Body) (*hcl.EvalContext, error) {
 }
 
 func validate(cfg Config) error {
-	if _, err := time.ParseDuration(cfg.Interval); err != nil {
+	d, err := time.ParseDuration(cfg.Interval)
+	if err != nil {
 		return fmt.Errorf("invalid interval: %w", err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("invalid interval %q: must be greater than 0", cfg.Interval)
 	}
 
 	var l slog.Level
