@@ -27,7 +27,7 @@ rule "ssh" {
 | `provider` | reference | yes | Target provider (`provider.nftables`, `provider.ovh`) |
 | `direction` | string | yes | `"inbound"` or `"outbound"` |
 | `action` | string | yes | `"allow"` or `"deny"` |
-| `protocol` | string | | `"tcp"`, `"udp"`, or `"icmp"` |
+| `protocol` | string | | `"tcp"`, `"udp"`, `"icmp"`, or `"icmpv6"` |
 | `src_port` | list of strings | | Source ports or ranges (`"80"`, `"1024-65535"`) |
 | `dst_port` | list of strings | | Destination ports or ranges |
 | `source` | list of strings | | Source IPs, CIDRs, or `data.*` references |
