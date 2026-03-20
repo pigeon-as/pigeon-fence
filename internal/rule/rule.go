@@ -46,21 +46,23 @@ func HashRule(r Rule) string {
 }
 
 // ExpandDataRefs replaces data.* references in a string slice with resolved values.
-func ExpandDataRefs(vals []string, resolved map[string][]string) []string {
+func ExpandDataRefs(vals []string, resolved map[string][]string) ([]string, error) {
 	if len(vals) == 0 {
-		return nil
+		return nil, nil
 	}
 	var out []string
 	for _, v := range vals {
 		if strings.HasPrefix(v, "data.") {
-			if rs, ok := resolved[v]; ok {
-				out = append(out, rs...)
+			rs, ok := resolved[v]
+			if !ok {
+				return nil, fmt.Errorf("unknown data source reference: %s", v)
 			}
+			out = append(out, rs...)
 		} else {
 			out = append(out, v)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // SplitByFamily splits a rule with mixed IPv4/IPv6 addresses into

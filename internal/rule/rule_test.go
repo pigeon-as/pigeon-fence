@@ -151,23 +151,39 @@ func TestExpandDataRefs(t *testing.T) {
 	}
 
 	t.Run("resolves data refs", func(t *testing.T) {
-		got := ExpandDataRefs([]string{"data.ovh_ips.servers"}, resolved)
+		got, err := ExpandDataRefs([]string{"data.ovh_ips.servers"}, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(got) != 2 || got[0] != "1.2.3.4" || got[1] != "5.6.7.8" {
 			t.Fatalf("got %v, want [1.2.3.4 5.6.7.8]", got)
 		}
 	})
 
 	t.Run("preserves literals alongside refs", func(t *testing.T) {
-		got := ExpandDataRefs([]string{"10.0.0.1", "data.ovh_ips.servers"}, resolved)
+		got, err := ExpandDataRefs([]string{"10.0.0.1", "data.ovh_ips.servers"}, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(got) != 3 || got[0] != "10.0.0.1" || got[1] != "1.2.3.4" || got[2] != "5.6.7.8" {
 			t.Fatalf("got %v, want [10.0.0.1 1.2.3.4 5.6.7.8]", got)
 		}
 	})
 
 	t.Run("empty input", func(t *testing.T) {
-		got := ExpandDataRefs(nil, resolved)
+		got, err := ExpandDataRefs(nil, resolved)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if got != nil {
 			t.Fatalf("got %v, want nil", got)
+		}
+	})
+
+	t.Run("unknown data ref errors", func(t *testing.T) {
+		_, err := ExpandDataRefs([]string{"data.unknown.ref"}, resolved)
+		if err == nil {
+			t.Fatal("expected error for unknown data ref")
 		}
 	})
 }

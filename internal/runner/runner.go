@@ -102,8 +102,15 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.L
 	var out []rule.Rule
 	for _, r := range rules {
 		expanded := r
-		expanded.Source = rule.ExpandDataRefs(r.Source, resolved)
-		expanded.Destination = rule.ExpandDataRefs(r.Destination, resolved)
+		var err error
+		expanded.Source, err = rule.ExpandDataRefs(r.Source, resolved)
+		if err != nil {
+			return nil, fmt.Errorf("rule %q source: %w", r.Name, err)
+		}
+		expanded.Destination, err = rule.ExpandDataRefs(r.Destination, resolved)
+		if err != nil {
+			return nil, fmt.Errorf("rule %q destination: %w", r.Name, err)
+		}
 
 		if hasDataRef(r.Source) && len(expanded.Source) == 0 {
 			logger.Warn("rule skipped: source data refs resolved to empty", "rule", r.Name)
