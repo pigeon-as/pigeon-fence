@@ -160,6 +160,7 @@ func (p *Provider) applyRules(rules []rule.Rule, hashes []string, jumps map[stri
 func (p *Provider) checkDrift(conn *nftables.Conn, desiredHashes []string, expectedJumps map[string]bool) (bool, string) {
 	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
 	if err != nil {
+		p.logger.Warn("drift check: failed to list chains", "err", err)
 		return true, "failed to list chains"
 	}
 
@@ -179,6 +180,7 @@ func (p *Provider) checkDrift(conn *nftables.Conn, desiredHashes []string, expec
 
 	rules, err := conn.GetRules(ourChain.Table, ourChain)
 	if err != nil {
+		p.logger.Warn("drift check: failed to read rules", "err", err)
 		return true, "failed to read rules"
 	}
 

@@ -91,7 +91,7 @@ func ifaceAddrs(iface *net.Interface) ([]string, error) {
 	for _, a := range addrs {
 		p, err := netip.ParsePrefix(a.String())
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("interface %q: unparseable address %q: %w", iface.Name, a.String(), err)
 		}
 		result = append(result, p.Addr().String())
 	}
