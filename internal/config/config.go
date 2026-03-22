@@ -287,6 +287,7 @@ func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
 				queue = append(queue, d)
 			}
 		}
+		sort.Strings(queue)
 	}
 
 	if len(order) != len(attrs) {
