@@ -1,6 +1,6 @@
 # pigeon-fence
 
-**Experimental** Linux-only pluggable firewall manager. Reconciles firewall rules across multiple providers from a single HCL config. Data sources feed dynamic rule expansion.
+**Experimental** pluggable firewall manager. Reconciles firewall rules across multiple providers from a single HCL config. Data sources feed dynamic rule expansion. Linux-only.
 
 > **Defense-in-Depth vs. Operational Burden:**
 > NIST defense-in-depth guidance recommends layered boundary protection, such as network firewalls complemented by host-based firewalls ([SP 800-123](https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-123.pdf), [SP 800-53 SC-7](https://csrc.nist.gov/projects/risk-management/sp800-53-controls/release-search#!/control?version=5.1&number=SC-7)). NIST's firewall guidance further recommends duplicating relevant policies across layers, while noting that multiple layers can be operationally troublesome ([SP 800-41r1](https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-41r1.pdf)). This tool tries to reduce the operational burden by reconciling rules across multiple firewall providers from a single config.
