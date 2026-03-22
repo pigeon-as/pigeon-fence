@@ -15,8 +15,8 @@ import (
 
 const (
 	defaultTableName = "pigeon-fence"
-	hashPrefix   = "pf:"
-	flushRetries = 3
+	hashPrefix       = "pf:"
+	flushRetries     = 3
 )
 
 type Config struct {
