@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pigeon-as/pigeon-fence/internal/provider"
 	"github.com/pigeon-as/pigeon-fence/internal/rule"
 )
 
@@ -54,41 +55,15 @@ func (p *Provider) getRule(ctx context.Context, ip string, sequence int) (*firew
 }
 
 func (p *Provider) createRule(ctx context.Context, ip string, opts createRuleOpts) error {
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			p.logger.Warn("OVH create rule retry", "ip", ip, "seq", opts.Sequence, "attempt", attempt+1, "err", err)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Duration(100*(1<<attempt)) * time.Millisecond):
-			}
-		}
-		err = p.client.PostWithContext(ctx, firewallPath(ip)+"/rule", opts, nil)
-		if err == nil {
-			return nil
-		}
-	}
-	return err
+	return provider.Retry(ctx, p.logger.With("ip", ip, "seq", opts.Sequence), "OVH create rule", 3, func() error {
+		return p.client.PostWithContext(ctx, firewallPath(ip)+"/rule", opts, nil)
+	})
 }
 
 func (p *Provider) deleteRule(ctx context.Context, ip string, sequence int) error {
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			p.logger.Warn("OVH delete rule retry", "ip", ip, "seq", sequence, "attempt", attempt+1, "err", err)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Duration(100*(1<<attempt)) * time.Millisecond):
-			}
-		}
-		err = p.client.DeleteWithContext(ctx, fmt.Sprintf("%s/rule/%d", firewallPath(ip), sequence), nil)
-		if err == nil {
-			return nil
-		}
-	}
-	return err
+	return provider.Retry(ctx, p.logger.With("ip", ip, "seq", sequence), "OVH delete rule", 3, func() error {
+		return p.client.DeleteWithContext(ctx, fmt.Sprintf("%s/rule/%d", firewallPath(ip), sequence), nil)
+	})
 }
 
 // mapAction converts generic rule actions to OVH API values.
@@ -124,13 +99,22 @@ func sourceMatches(desired, got string) bool {
 	return dp == gp
 }
 
-// portMatches compares a desired port slice (0 or 1 entries) with an OVH response port string.
-// OVH returns ports as "eq 22" for single ports.
-func portMatches(desired []string, got string) bool {
-	if len(desired) == 0 {
-		return got == "" || got == "any"
+// normalizeOVHPort converts an OVH API port string to a plain number.
+// OVH returns ports as "eq 22" for single ports, "" or "any" for unset.
+func normalizeOVHPort(s string) string {
+	s = strings.TrimPrefix(s, "eq ")
+	if s == "any" {
+		return ""
 	}
-	got = strings.TrimPrefix(got, "eq ")
+	return s
+}
+
+// portMatches compares a desired port slice (0 or 1 entries) with an OVH response port string.
+func portMatches(desired []string, got string) bool {
+	got = normalizeOVHPort(got)
+	if len(desired) == 0 {
+		return got == ""
+	}
 	return desired[0] == got
 }
 

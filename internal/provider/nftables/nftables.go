@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -91,22 +90,13 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 	}
 
 	// Apply with retry.
-	var err error
-	for attempt := 0; attempt < flushRetries; attempt++ {
-		if attempt > 0 {
-			p.logger.Warn("nftables flush retry", "attempt", attempt+1, "err", err)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(100*(1<<attempt)) * time.Millisecond):
-			}
-		}
-		err = p.applyRules(effective, desiredHashes, expectedJumps)
-		if err == nil {
-			return &provider.ReconcileResult{InSync: false, Reason: reason}, nil
-		}
+	err := provider.Retry(ctx, p.logger, "nftables flush", flushRetries, func() error {
+		return p.applyRules(effective, desiredHashes, expectedJumps)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("nftables reconcile failed after %d attempts: %w", flushRetries, err)
 	}
-	return nil, fmt.Errorf("nftables reconcile failed after %d attempts: %w", flushRetries, err)
+	return &provider.ReconcileResult{InSync: false, Reason: reason}, nil
 }
 
 // applyRules atomically replaces all rules via a single nftables.Conn and
@@ -145,7 +135,7 @@ func (p *Provider) applyRules(rules []rule.Rule, hashes []string, jumps map[stri
 			Table:    filterTable,
 			Chain:    ourChain,
 			Exprs:    exprs,
-			UserData: []byte(r.Name + " " + hashPrefix + hashes[i]),
+			UserData: []byte(r.Name + "\x00" + hashPrefix + hashes[i]),
 		})
 	}
 
@@ -204,9 +194,8 @@ func (p *Provider) checkDrift(conn *nftables.Conn, desiredHashes []string, expec
 	}
 
 	for i, r := range rules {
-		ud := string(r.UserData)
-		hashIdx := strings.LastIndex(ud, hashPrefix)
-		if hashIdx < 0 || ud[hashIdx+len(hashPrefix):] != desiredHashes[i] {
+		parts := strings.SplitN(string(r.UserData), "\x00", 2)
+		if len(parts) != 2 || strings.TrimPrefix(parts[1], hashPrefix) != desiredHashes[i] {
 			return true, fmt.Sprintf("rule %d hash mismatch", i)
 		}
 	}

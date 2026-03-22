@@ -179,6 +179,34 @@ rule "web" {
 	}
 }
 
+func TestLoad_LocalsIntraBlockOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+locals {
+  b = local.a
+  a = "443"
+}
+
+rule "test" {
+  provider  = provider.nftables
+  direction = "inbound"
+  protocol  = "tcp"
+  dst_port  = [local.b]
+  action    = "allow"
+}
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Rules[0].DstPort[0] != "443" {
+		t.Fatalf("dst_port = %v, want [443]", cfg.Rules[0].DstPort)
+	}
+}
+
 func TestLoad_LocalsCircularErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "fence.hcl", `
@@ -200,8 +228,8 @@ rule "test" {
 	if err == nil {
 		t.Fatal("expected error for circular locals")
 	}
-	if !strings.Contains(err.Error(), "unresolvable") {
-		t.Fatalf("error = %v, want unresolvable reference", err)
+	if !strings.Contains(err.Error(), "circular dependency") {
+		t.Fatalf("error = %v, want circular dependency", err)
 	}
 }
 
