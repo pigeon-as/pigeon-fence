@@ -55,13 +55,13 @@ func (p *Provider) getRule(ctx context.Context, ip string, sequence int) (*firew
 }
 
 func (p *Provider) createRule(ctx context.Context, ip string, opts createRuleOpts) error {
-	return provider.Retry(ctx, p.logger, "OVH create rule", 3, func() error {
+	return provider.Retry(ctx, p.logger.With("ip", ip, "seq", opts.Sequence), "OVH create rule", 3, func() error {
 		return p.client.PostWithContext(ctx, firewallPath(ip)+"/rule", opts, nil)
 	})
 }
 
 func (p *Provider) deleteRule(ctx context.Context, ip string, sequence int) error {
-	return provider.Retry(ctx, p.logger, "OVH delete rule", 3, func() error {
+	return provider.Retry(ctx, p.logger.With("ip", ip, "seq", sequence), "OVH delete rule", 3, func() error {
 		return p.client.DeleteWithContext(ctx, fmt.Sprintf("%s/rule/%d", firewallPath(ip), sequence), nil)
 	})
 }

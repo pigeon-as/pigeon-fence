@@ -291,11 +291,14 @@ func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
 	}
 
 	if len(order) != len(attrs) {
-		for name := range attrs {
-			if inDegree[name] > 0 {
-				return nil, fmt.Errorf("local.%s: circular dependency", name)
+		var cyclic []string
+		for name, deg := range inDegree {
+			if deg > 0 {
+				cyclic = append(cyclic, name)
 			}
 		}
+		sort.Strings(cyclic)
+		return nil, fmt.Errorf("local.%s: circular dependency", cyclic[0])
 	}
 	return order, nil
 }

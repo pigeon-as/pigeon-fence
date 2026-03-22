@@ -34,7 +34,7 @@ func Retry(ctx context.Context, logger *slog.Logger, opName string, maxAttempts 
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(time.Duration(100*(1<<attempt)) * time.Millisecond):
+			case <-time.After(time.Duration(100*(1<<(attempt-1))) * time.Millisecond):
 			}
 		}
 		err = fn()
