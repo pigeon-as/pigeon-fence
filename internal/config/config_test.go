@@ -200,8 +200,8 @@ rule "test" {
 	if err == nil {
 		t.Fatal("expected error for circular locals")
 	}
-	if !strings.Contains(err.Error(), "unresolvable") {
-		t.Fatalf("error = %v, want unresolvable reference", err)
+	if !strings.Contains(err.Error(), "circular dependency") {
+		t.Fatalf("error = %v, want circular dependency", err)
 	}
 }
 

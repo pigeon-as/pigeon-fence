@@ -215,9 +215,8 @@ func buildEvalContext(body hcl.Body) (*hcl.EvalContext, error) {
 	}
 
 	// Evaluate locals blocks in order (inter-block references allowed).
-	// Within each block, use multi-pass evaluation so intra-block references
-	// resolve regardless of map iteration order (Terraform evaluates locals
-	// via a dependency DAG; multi-pass is the simpler equivalent).
+	// Within each block, topological sort via expr.Variables() ensures
+	// intra-block dependencies evaluate in the right order (Terraform pattern).
 	ctx := &hcl.EvalContext{Variables: vars, Functions: funcs}
 	localVars := make(map[string]cty.Value)
 	for _, lb := range labels.Locals {
@@ -226,52 +225,78 @@ func buildEvalContext(body hcl.Body) (*hcl.EvalContext, error) {
 			return nil, fmt.Errorf("locals: %s", diags.Error())
 		}
 
-		// Multi-pass: evaluate what we can, defer the rest, repeat.
-		pending := make(map[string]*hcl.Attribute, len(attrs))
-		for k, v := range attrs {
-			pending[k] = v
+		order, err := topoSortLocals(attrs)
+		if err != nil {
+			return nil, err
 		}
-		for len(pending) > 0 {
-			progress := false
-			// Sorted keys for deterministic error messages.
-			names := make([]string, 0, len(pending))
-			for k := range pending {
-				names = append(names, k)
+		for _, name := range order {
+			val, diags := attrs[name].Expr.Value(ctx)
+			if diags.HasErrors() {
+				return nil, fmt.Errorf("local.%s: %s", name, diags.Error())
 			}
-			sort.Strings(names)
-			for _, name := range names {
-				val, diags := pending[name].Expr.Value(ctx)
-				if diags.HasErrors() {
-					// Only defer if all errors look like unresolved
-					// dependencies (unknown variable/attribute). Real
-					// errors (type mismatch, bad function call) surface
-					// immediately so they aren't masked as "unresolvable
-					// reference".
-					if hasFatalDiag(diags) {
-						return nil, fmt.Errorf("local.%s: %s", name, diags.Error())
-					}
-					continue // dependency not yet available
-				}
-				localVars[name] = val
-				delete(pending, name)
-				progress = true
-			}
-			if !progress {
-				// All remaining locals have unresolvable references.
-				names = names[:0]
-				for k := range pending {
-					names = append(names, k)
-				}
-				sort.Strings(names)
-				return nil, fmt.Errorf("local.%s: unresolvable reference (circular or undefined)", names[0])
-			}
-			// Rebuild context so next pass sees newly evaluated locals.
+			localVars[name] = val
 			vars["local"] = cty.ObjectVal(localVars)
 			ctx = &hcl.EvalContext{Variables: vars, Functions: funcs}
 		}
 	}
 
 	return ctx, nil
+}
+
+// topoSortLocals returns local attribute names in evaluation order using
+// Kahn's algorithm. Detects cycles. Dependencies are extracted via the
+// HCL expr.Variables() API (same approach as Terraform).
+func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
+	inDegree := make(map[string]int, len(attrs))
+	dependents := make(map[string][]string, len(attrs))
+	for name := range attrs {
+		inDegree[name] = 0
+	}
+	for name, attr := range attrs {
+		for _, t := range attr.Expr.Variables() {
+			if t.RootName() != "local" || len(t) < 2 {
+				continue
+			}
+			if step, ok := t[1].(hcl.TraverseAttr); ok {
+				if _, exists := attrs[step.Name]; exists {
+					inDegree[name]++
+					dependents[step.Name] = append(dependents[step.Name], name)
+				}
+			}
+		}
+	}
+
+	var queue []string
+	for name, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, name)
+		}
+	}
+	sort.Strings(queue)
+
+	order := make([]string, 0, len(attrs))
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		order = append(order, name)
+		next := dependents[name]
+		sort.Strings(next)
+		for _, d := range next {
+			inDegree[d]--
+			if inDegree[d] == 0 {
+				queue = append(queue, d)
+			}
+		}
+	}
+
+	if len(order) != len(attrs) {
+		for name := range attrs {
+			if inDegree[name] > 0 {
+				return nil, fmt.Errorf("local.%s: circular dependency", name)
+			}
+		}
+	}
+	return order, nil
 }
 
 func validate(cfg Config) error {
@@ -371,20 +396,4 @@ func validate(cfg Config) error {
 	return nil
 }
 
-// hasFatalDiag returns true if any error diagnostic is NOT a dependency error
-// (i.e., not an unresolved variable/attribute). Dependency errors have
-// summary "Unknown variable" or "Unsupported attribute" in HCL v2.
-func hasFatalDiag(diags hcl.Diagnostics) bool {
-	for _, d := range diags {
-		if d.Severity != hcl.DiagError {
-			continue
-		}
-		switch d.Summary {
-		case "Unknown variable", "Unsupported attribute":
-			// Likely an unresolved dependency — defer.
-		default:
-			return true
-		}
-	}
-	return false
-}
+
