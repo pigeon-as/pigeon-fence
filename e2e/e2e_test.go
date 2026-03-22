@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/google/nftables"
-	"github.com/google/nftables/expr"
 )
 
 // binary is the path to the built pigeon-fence binary.
@@ -28,11 +27,6 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
-	// pigeon-fence expects a pre-existing inet filter table with input/output
-	// base chains (it never creates them — "base skeleton untouched" design).
-	// Ensure the skeleton exists for the test run.
-	ensureBaseSkeleton(conn)
-
 	// Locate the binary relative to the repo root.
 	// Tests run from e2e/, binary is at build/pigeon-fence.
 	wd, _ := os.Getwd()
@@ -46,101 +40,21 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// ensureBaseSkeleton creates the inet filter table with input/output base chains
-// if they don't already exist. pigeon-fence requires these as a prerequisite.
-func ensureBaseSkeleton(conn *nftables.Conn) {
-	// Check if filter table with base chains already exists.
-	chains, _ := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
-	hasInput, hasOutput := false, false
-	for _, c := range chains {
-		if c.Table.Name == "filter" {
-			if c.Name == "input" {
-				hasInput = true
-			}
-			if c.Name == "output" {
-				hasOutput = true
-			}
-		}
-	}
-	if hasInput && hasOutput {
-		return
-	}
-
-	table := conn.AddTable(&nftables.Table{
-		Family: nftables.TableFamilyINet,
-		Name:   "filter",
-	})
-	if !hasInput {
-		conn.AddChain(&nftables.Chain{
-			Name:     "input",
-			Table:    table,
-			Type:     nftables.ChainTypeFilter,
-			Hooknum:  nftables.ChainHookInput,
-			Priority: nftables.ChainPriorityFilter,
-			Policy:   ptrChainPolicy(nftables.ChainPolicyAccept),
-		})
-	}
-	if !hasOutput {
-		conn.AddChain(&nftables.Chain{
-			Name:     "output",
-			Table:    table,
-			Type:     nftables.ChainTypeFilter,
-			Hooknum:  nftables.ChainHookOutput,
-			Priority: nftables.ChainPriorityFilter,
-			Policy:   ptrChainPolicy(nftables.ChainPolicyAccept),
-		})
-	}
-	if err := conn.Flush(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create base nftables skeleton: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func ptrChainPolicy(p nftables.ChainPolicy) *nftables.ChainPolicy {
-	return &p
-}
-
 // --- Helpers ---
 
-// cleanup deletes all pigeon-fence chains from the inet filter table.
+// cleanup deletes the pigeon-fence table.
 func cleanup(t *testing.T) {
 	t.Helper()
 	conn := &nftables.Conn{}
-	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
+	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
 	if err != nil {
 		return
 	}
-	for _, c := range chains {
-		if c.Table.Name != "filter" {
-			continue
-		}
-		if strings.HasPrefix(c.Name, "pigeon-fence") {
-			removeJumps(conn, c.Table, c.Name)
-			conn.FlushChain(c)
-			conn.DelChain(c)
-		}
-	}
-	conn.Flush()
-}
-
-// removeJumps removes jump rules pointing to chainName from all chains in the table.
-func removeJumps(conn *nftables.Conn, table *nftables.Table, chainName string) {
-	chains, _ := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
-	for _, c := range chains {
-		if c.Table.Name != table.Name || c.Name == chainName {
-			continue
-		}
-		rules, err := conn.GetRules(c.Table, c)
-		if err != nil {
-			continue
-		}
-		for _, r := range rules {
-			for _, e := range r.Exprs {
-				if v, ok := e.(*expr.Verdict); ok && v.Kind == expr.VerdictJump && v.Chain == chainName {
-					conn.DelRule(r)
-					break
-				}
-			}
+	for _, tbl := range tables {
+		if tbl.Name == "pigeon-fence" {
+			conn.DelTable(tbl)
+			conn.Flush()
+			return
 		}
 	}
 }
@@ -186,8 +100,8 @@ func fenceFail(t *testing.T, hcl string) string {
 	return string(out)
 }
 
-// getChain returns the pigeon-fence chain from inet filter, or nil.
-func getChain(t *testing.T) *nftables.Chain {
+// getChain returns a chain from the pigeon-fence table, or nil.
+func getChain(t *testing.T, chainName string) *nftables.Chain {
 	t.Helper()
 	conn := &nftables.Conn{}
 	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
@@ -195,19 +109,19 @@ func getChain(t *testing.T) *nftables.Chain {
 		t.Fatalf("ListChains: %v", err)
 	}
 	for _, c := range chains {
-		if c.Table.Name == "filter" && c.Name == "pigeon-fence" {
+		if c.Table.Name == "pigeon-fence" && c.Name == chainName {
 			return c
 		}
 	}
 	return nil
 }
 
-// getRules returns the rules in the pigeon-fence chain.
-func getRules(t *testing.T) []*nftables.Rule {
+// getRules returns the rules in a chain of the pigeon-fence table.
+func getRules(t *testing.T, chainName string) []*nftables.Rule {
 	t.Helper()
-	chain := getChain(t)
+	chain := getChain(t, chainName)
 	if chain == nil {
-		t.Fatal("pigeon-fence chain not found")
+		t.Fatalf("chain %q not found in pigeon-fence table", chainName)
 	}
 	conn := &nftables.Conn{}
 	rules, err := conn.GetRules(chain.Table, chain)
@@ -217,31 +131,26 @@ func getRules(t *testing.T) []*nftables.Rule {
 	return rules
 }
 
-// hasJump checks whether a base chain has a jump rule to pigeon-fence.
-func hasJump(t *testing.T, baseChain string) bool {
+// getTable returns the pigeon-fence table, or nil.
+func getTable(t *testing.T) *nftables.Table {
 	t.Helper()
 	conn := &nftables.Conn{}
-	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
+	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
 	if err != nil {
-		t.Fatalf("ListChains: %v", err)
+		t.Fatalf("ListTables: %v", err)
 	}
-	for _, c := range chains {
-		if c.Table.Name != "filter" || c.Name != baseChain {
-			continue
-		}
-		rules, err := conn.GetRules(c.Table, c)
-		if err != nil {
-			t.Fatalf("GetRules(%s): %v", baseChain, err)
-		}
-		for _, r := range rules {
-			for _, e := range r.Exprs {
-				if v, ok := e.(*expr.Verdict); ok && v.Kind == expr.VerdictJump && v.Chain == "pigeon-fence" {
-					return true
-				}
-			}
+	for _, tbl := range tables {
+		if tbl.Name == "pigeon-fence" {
+			return tbl
 		}
 	}
-	return false
+	return nil
+}
+
+// hasChain checks whether the pigeon-fence table has a chain with the given name.
+func hasChain(t *testing.T, chainName string) bool {
+	t.Helper()
+	return getChain(t, chainName) != nil
 }
 
 func ruleUserData(r *nftables.Rule) string {
@@ -277,7 +186,7 @@ rule "deny_all" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2", len(rules))
 	}
@@ -292,8 +201,8 @@ rule "deny_all" {
 			t.Errorf("rule[%d] missing hash prefix in UserData: %q", i, ruleUserData(r))
 		}
 	}
-	if !hasJump(t, "input") {
-		t.Error("jump rule missing in input chain")
+	if !hasChain(t, "input") {
+		t.Error("input chain missing in pigeon-fence table")
 	}
 }
 
@@ -310,12 +219,12 @@ rule "block_outbound" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "output")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
-	if !hasJump(t, "output") {
-		t.Error("jump rule missing in output chain")
+	if !hasChain(t, "output") {
+		t.Error("output chain missing in pigeon-fence table")
 	}
 }
 
@@ -340,15 +249,19 @@ rule "allow_dns_out" {
 }
 `)
 
-	rules := getRules(t)
-	if len(rules) != 2 {
-		t.Fatalf("rule count = %d, want 2", len(rules))
+	inRules := getRules(t, "input")
+	if len(inRules) != 1 {
+		t.Fatalf("input rule count = %d, want 1", len(inRules))
 	}
-	if !hasJump(t, "input") {
-		t.Error("jump rule missing in input chain")
+	outRules := getRules(t, "output")
+	if len(outRules) != 1 {
+		t.Fatalf("output rule count = %d, want 1", len(outRules))
 	}
-	if !hasJump(t, "output") {
-		t.Error("jump rule missing in output chain")
+	if !hasChain(t, "input") {
+		t.Error("input chain missing in pigeon-fence table")
+	}
+	if !hasChain(t, "output") {
+		t.Error("output chain missing in pigeon-fence table")
 	}
 }
 
@@ -364,7 +277,7 @@ rule "allow_lo" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -388,7 +301,7 @@ rule "mixed" {
 `)
 
 	// SplitByFamily produces 2 rules (one IPv4, one IPv6).
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2 (split by family)", len(rules))
 	}
@@ -407,7 +320,7 @@ rule "high_ports" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -426,7 +339,7 @@ rule "web" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -446,7 +359,7 @@ rule "trusted" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -466,7 +379,7 @@ rule "subnet" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -491,7 +404,7 @@ rule "allow_icmpv6" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2", len(rules))
 	}
@@ -516,7 +429,7 @@ rule "allow_local" {
 `)
 
 	// localhost resolves to 127.0.0.1 and/or ::1.
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) < 1 {
 		t.Fatalf("rule count = %d, want >= 1", len(rules))
 	}
@@ -539,7 +452,7 @@ rule "allow_loopback_addrs" {
 `)
 
 	// lo has 127.0.0.1 and ::1 — mixed family split.
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) < 1 {
 		t.Fatalf("rule count = %d, want >= 1", len(rules))
 	}
@@ -569,7 +482,7 @@ dynamic "rule" {
 }
 `)
 
-	rules := getRules(t)
+	rules := getRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2", len(rules))
 	}
@@ -602,7 +515,7 @@ rule "ssh" {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	rules1 := getRules(t)
+	rules1 := getRules(t, "input")
 
 	// Second run — should detect in-sync.
 	cmd = exec.Command(binary, args...)
@@ -610,7 +523,7 @@ rule "ssh" {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
-	rules2 := getRules(t)
+	rules2 := getRules(t, "input")
 
 	if len(rules1) != len(rules2) {
 		t.Fatalf("rule count changed: %d → %d", len(rules1), len(rules2))
@@ -657,12 +570,12 @@ rule "http" {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	if len(getRules(t)) != 2 {
+	if len(getRules(t, "input")) != 2 {
 		t.Fatal("expected 2 rules after first run")
 	}
 
 	// Simulate drift: delete one rule from kernel.
-	chain := getChain(t)
+	chain := getChain(t, "input")
 	conn := &nftables.Conn{}
 	rules, _ := conn.GetRules(chain.Table, chain)
 	if len(rules) > 0 {
@@ -671,7 +584,7 @@ rule "http" {
 			t.Fatalf("manual delete: %v", err)
 		}
 	}
-	if len(getRules(t)) != 1 {
+	if len(getRules(t, "input")) != 1 {
 		t.Fatal("expected 1 rule after drift")
 	}
 
@@ -681,17 +594,17 @@ rule "http" {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("recovery run: %v", err)
 	}
-	if len(getRules(t)) != 2 {
-		t.Fatalf("rule count after recovery = %d, want 2", len(getRules(t)))
+	if len(getRules(t, "input")) != 2 {
+		t.Fatalf("rule count after recovery = %d, want 2", len(getRules(t, "input")))
 	}
 }
 
 func TestNoRulesNoChain(t *testing.T) {
 	fence(t, `provider "nftables" {}`)
 
-	chain := getChain(t)
-	if chain != nil {
-		t.Error("pigeon-fence chain should not exist with zero rules")
+	tbl := getTable(t)
+	if tbl != nil {
+		t.Error("pigeon-fence table should not exist with zero rules")
 	}
 }
 
