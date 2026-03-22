@@ -93,7 +93,9 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 // Writes (Del/Add) are batched and applied atomically on Flush().
 func (p *Provider) applyRules(rules []rule.Rule, hashes []string) error {
 	conn := &nftables.Conn{}
-	p.cleanupTable(conn)
+	if err := p.cleanupTable(conn); err != nil {
+		return fmt.Errorf("cleanup table: %w", err)
+	}
 
 	if len(rules) == 0 {
 		return conn.Flush()
@@ -199,7 +201,10 @@ func (p *Provider) checkDrift(conn *nftables.Conn, rules []rule.Rule, desiredHas
 	}
 	expected := make(map[string]*chainHashes)
 	for i, r := range rules {
-		chainName, _ := mapDirection(r.Direction)
+		chainName, err := mapDirection(r.Direction)
+		if err != nil {
+			return true, fmt.Sprintf("invalid direction %q for rule at index %d", r.Direction, i)
+		}
 		ch := expected[chainName]
 		if ch == nil {
 			ch = &chainHashes{}
@@ -253,17 +258,18 @@ func (p *Provider) checkDrift(conn *nftables.Conn, rules []rule.Rule, desiredHas
 
 // cleanupTable deletes our table if it exists. DelTable removes all chains
 // and rules within it. The deletion is batched and applied on Flush().
-func (p *Provider) cleanupTable(conn *nftables.Conn) {
+func (p *Provider) cleanupTable(conn *nftables.Conn) error {
 	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
 	if err != nil {
-		return
+		return fmt.Errorf("list tables: %w", err)
 	}
 	for _, t := range tables {
 		if t.Name == p.tableName {
 			conn.DelTable(t)
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
 func mapDirection(dir string) (string, error) {
