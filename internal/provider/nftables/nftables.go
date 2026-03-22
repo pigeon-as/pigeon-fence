@@ -115,7 +115,7 @@ func (p *Provider) applyRules(rules []rule.Rule, hashes []string) error {
 	for i, r := range rules {
 		chainName, err := mapDirection(r.Direction)
 		if err != nil {
-			return err
+			return fmt.Errorf("rule %q: %w", r.Name, err)
 		}
 		cr := byDir[chainName]
 		if cr == nil {
