@@ -53,7 +53,9 @@ func cleanup(t *testing.T) {
 	for _, tbl := range tables {
 		if tbl.Name == "pigeon-fence" {
 			conn.DelTable(tbl)
-			conn.Flush()
+			if err := conn.Flush(); err != nil {
+				t.Fatalf("cleanup: flush failed: %v", err)
+			}
 			return
 		}
 	}
