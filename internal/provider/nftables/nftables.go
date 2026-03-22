@@ -128,7 +128,7 @@ func (p *Provider) applyRules(rules []rule.Rule, hashes []string) error {
 
 	for chainName, cr := range byDir {
 		hook, priority := chainHookPriority(chainName)
-		policy := nftables.ChainPolicyAccept
+		policy := nftables.ChainPolicyDrop
 		chain := conn.AddChain(&nftables.Chain{
 			Name:     chainName,
 			Table:    table,
