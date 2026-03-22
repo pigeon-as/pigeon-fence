@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	chainPrefix  = "pigeon-fence"
+	defaultTableName = "pigeon-fence"
 	hashPrefix   = "pf:"
 	flushRetries = 3
 )
@@ -33,7 +33,7 @@ type Provider struct {
 func New(cfg Config) *Provider {
 	return &Provider{
 		name:      cfg.Name,
-		tableName: chainPrefix,
+		tableName: defaultTableName,
 		logger:    cfg.Logger,
 	}
 }
