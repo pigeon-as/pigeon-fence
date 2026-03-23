@@ -41,16 +41,12 @@ func build(logger *slog.Logger, cfg config.Config) ([]providerEntry, []dataEntry
 	for _, pc := range cfg.Providers {
 		switch pc.Type {
 		case "nftables":
-			rules := filterRules(cfg.Rules, pc.Type)
-			if err := validateRules(rules, nftprov.ValidateRule); err != nil {
-				return nil, nil, err
-			}
 			entries = append(entries, providerEntry{
 				provider: nftprov.New(nftprov.Config{
 					Name:   pc.Type,
 					Logger: logger,
 				}),
-				rules: rules,
+				rules: filterRules(cfg.Rules, pc.Type),
 			})
 		case "ovh":
 			// OVH provider is data-source-only. Create the shared API client
@@ -111,16 +107,20 @@ func build(logger *slog.Logger, cfg config.Config) ([]providerEntry, []dataEntry
 		}
 	}
 
-	return entries, sources, nil
-}
-
-func validateRules(rules []rule.Rule, validate func(rule.Rule) error) error {
-	for _, r := range rules {
-		if err := validate(r); err != nil {
-			return fmt.Errorf("rule %q: %w", r.Name, err)
+	// Run provider-specific rule validation if the provider implements it.
+	for _, e := range entries {
+		v, ok := e.provider.(provider.RuleValidator)
+		if !ok {
+			continue
+		}
+		for _, r := range e.rules {
+			if err := v.ValidateRule(r); err != nil {
+				return nil, nil, fmt.Errorf("rule %q: %w", r.Name, err)
+			}
 		}
 	}
-	return nil
+
+	return entries, sources, nil
 }
 
 func filterRules(rules []rule.Rule, key string) []rule.Rule {

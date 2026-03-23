@@ -24,6 +24,12 @@ type Provider interface {
 	Reconcile(ctx context.Context, rules []rule.Rule) (*ReconcileResult, error)
 }
 
+// RuleValidator is optionally implemented by providers that need
+// provider-specific rule validation at startup.
+type RuleValidator interface {
+	ValidateRule(rule.Rule) error
+}
+
 // Retry calls fn up to maxAttempts times with exponential backoff
 // (100ms, 200ms, 400ms…). Returns the last error if all attempts fail.
 func Retry(ctx context.Context, logger *slog.Logger, opName string, maxAttempts int, fn func() error) error {
