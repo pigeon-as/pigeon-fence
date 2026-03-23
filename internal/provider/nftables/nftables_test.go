@@ -469,13 +469,13 @@ func TestBaseRulesForwardChain(t *testing.T) {
 }
 
 func TestBaseRuleCount(t *testing.T) {
-	if got := baseRuleCount("input"); got != 3 {
+	if got := len(baseRules("input")); got != 3 {
 		t.Fatalf("input: got %d, want 3", got)
 	}
-	if got := baseRuleCount("output"); got != 2 {
+	if got := len(baseRules("output")); got != 2 {
 		t.Fatalf("output: got %d, want 2", got)
 	}
-	if got := baseRuleCount("forward"); got != 2 {
+	if got := len(baseRules("forward")); got != 2 {
 		t.Fatalf("forward: got %d, want 2", got)
 	}
 }
