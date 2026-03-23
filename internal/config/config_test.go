@@ -466,6 +466,64 @@ rule "other" {
 	}
 }
 
+func TestValidate_InboundOutboundInterfaceErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+rule "test" {
+  provider           = provider.nftables
+  direction          = "inbound"
+  action             = "accept"
+  outbound_interface = "eth0"
+}
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for outbound_interface on inbound rule")
+	}
+}
+
+func TestValidate_OutboundInboundInterfaceErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+rule "test" {
+  provider          = provider.nftables
+  direction         = "outbound"
+  action            = "accept"
+  inbound_interface = "eth0"
+}
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for inbound_interface on outbound rule")
+	}
+}
+
+func TestValidate_ForwardBothInterfacesSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+rule "test" {
+  provider           = provider.nftables
+  direction          = "forward"
+  action             = "accept"
+  inbound_interface  = "eth0"
+  outbound_interface = "wg0"
+}
+`)
+
+	_, err := Load(path)
+	if err != nil {
+		t.Fatalf("forward rules should allow both interfaces: %v", err)
+	}
+}
+
 func TestValidate_OVHProviderRulePassesConfig(t *testing.T) {
 	// OVH rules pass config validation (provider is declared).
 	// The factory rejects them because OVH has no reconciler.
