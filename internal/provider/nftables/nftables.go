@@ -131,6 +131,16 @@ func (p *Provider) applyRules(rules []rule.Rule, hashes []string) error {
 			Policy:   &policy,
 		})
 
+		// Prepend base rules (ct state, lo accept) before user rules.
+		for _, br := range baseRules(chainName) {
+			conn.AddRule(&nftables.Rule{
+				Table:    table,
+				Chain:    chain,
+				Exprs:    br.exprs,
+				UserData: br.userData,
+			})
+		}
+
 		for i, r := range cr.rules {
 			exprs, err := buildExprs(r, conn, table)
 			if err != nil {
@@ -204,6 +214,15 @@ func (p *Provider) checkDrift(conn *nftables.Conn, rules []rule.Rule, desiredHas
 			expected[chainName] = ch
 		}
 		ch.hashes = append(ch.hashes, desiredHashes[i])
+	}
+
+	// Prepend base rule hashes for each chain.
+	for chainName, ch := range expected {
+		baseHashes := make([]string, len(baseRules(chainName)))
+		for i := range baseHashes {
+			baseHashes[i] = baseHashMarker
+		}
+		ch.hashes = append(baseHashes, ch.hashes...)
 	}
 
 	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)

@@ -419,3 +419,119 @@ func TestBuildExprs_FullRule(t *testing.T) {
 
 	requireExprs(t, want, got)
 }
+
+// --- Base Rules ---
+
+func TestBaseRulesInputChain(t *testing.T) {
+	rules := baseRules("input")
+	if len(rules) != 3 {
+		t.Fatalf("input chain: got %d base rules, want 3", len(rules))
+	}
+
+	// Rule 0: ct state established,related accept
+	requireExprs(t, ctStateAcceptExprs(), rules[0].exprs)
+	if string(rules[0].userData) != "__base:ct-accept\x00pf:__base" {
+		t.Fatalf("rule 0 userData: got %q", string(rules[0].userData))
+	}
+
+	// Rule 1: ct state invalid drop
+	requireExprs(t, ctStateInvalidExprs(), rules[1].exprs)
+	if string(rules[1].userData) != "__base:ct-invalid\x00pf:__base" {
+		t.Fatalf("rule 1 userData: got %q", string(rules[1].userData))
+	}
+
+	// Rule 2: iifname "lo" accept
+	requireExprs(t, loAcceptExprs(), rules[2].exprs)
+	if string(rules[2].userData) != "__base:lo-accept\x00pf:__base" {
+		t.Fatalf("rule 2 userData: got %q", string(rules[2].userData))
+	}
+}
+
+func TestBaseRulesOutputChain(t *testing.T) {
+	rules := baseRules("output")
+	if len(rules) != 2 {
+		t.Fatalf("output chain: got %d base rules, want 2", len(rules))
+	}
+
+	// No lo accept for output/forward.
+	for _, r := range rules {
+		if string(r.userData) == "__base:lo-accept\x00pf:__base" {
+			t.Fatal("lo-accept should not appear in output chain")
+		}
+	}
+}
+
+func TestBaseRulesForwardChain(t *testing.T) {
+	rules := baseRules("forward")
+	if len(rules) != 2 {
+		t.Fatalf("forward chain: got %d base rules, want 2", len(rules))
+	}
+}
+
+func TestBaseRuleCount(t *testing.T) {
+	if got := len(baseRules("input")); got != 3 {
+		t.Fatalf("input: got %d, want 3", got)
+	}
+	if got := len(baseRules("output")); got != 2 {
+		t.Fatalf("output: got %d, want 2", got)
+	}
+	if got := len(baseRules("forward")); got != 2 {
+		t.Fatalf("forward: got %d, want 2", got)
+	}
+}
+
+func TestCtStateAcceptExprs(t *testing.T) {
+	exprs := ctStateAcceptExprs()
+	if len(exprs) != 4 {
+		t.Fatalf("got %d exprs, want 4", len(exprs))
+	}
+	// Check ct state load
+	ct, ok := exprs[0].(*expr.Ct)
+	if !ok || ct.Key != expr.CtKeySTATE {
+		t.Fatal("first expr should be Ct with CtKeySTATE")
+	}
+	// Check verdict is accept
+	v, ok := exprs[3].(*expr.Verdict)
+	if !ok || v.Kind != expr.VerdictAccept {
+		t.Fatal("last expr should be VerdictAccept")
+	}
+}
+
+func TestCtStateInvalidExprs(t *testing.T) {
+	exprs := ctStateInvalidExprs()
+	if len(exprs) != 4 {
+		t.Fatalf("got %d exprs, want 4", len(exprs))
+	}
+	// Check verdict is drop
+	v, ok := exprs[3].(*expr.Verdict)
+	if !ok || v.Kind != expr.VerdictDrop {
+		t.Fatal("last expr should be VerdictDrop")
+	}
+}
+
+func TestLoAcceptExprs(t *testing.T) {
+	exprs := loAcceptExprs()
+	if len(exprs) != 3 {
+		t.Fatalf("got %d exprs, want 3", len(exprs))
+	}
+	// Check interface meta load
+	meta, ok := exprs[0].(*expr.Meta)
+	if !ok || meta.Key != expr.MetaKeyIIFNAME {
+		t.Fatal("first expr should be Meta IIFNAME")
+	}
+	// Check lo name comparison
+	cmp, ok := exprs[1].(*expr.Cmp)
+	if !ok || cmp.Op != expr.CmpOpEq {
+		t.Fatal("second expr should be CmpEq")
+	}
+	wantLo := make([]byte, ifnamsiz)
+	copy(wantLo, "lo")
+	if !reflect.DeepEqual(cmp.Data, wantLo) {
+		t.Fatalf("interface name: got %v, want %v", cmp.Data, wantLo)
+	}
+	// Check verdict is accept
+	v, ok := exprs[2].(*expr.Verdict)
+	if !ok || v.Kind != expr.VerdictAccept {
+		t.Fatal("last expr should be VerdictAccept")
+	}
+}
