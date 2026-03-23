@@ -56,12 +56,6 @@ func (c Config) IntervalDuration() time.Duration {
 	return d
 }
 
-// SlogLevel parses the validated log level string.
-func (c Config) SlogLevel() slog.Level {
-	var l slog.Level
-	l.UnmarshalText([]byte(c.LogLevel))
-	return l
-}
 
 // Load reads HCL config from a file or directory.
 // Directory: all *.hcl files merged in alphabetical order.

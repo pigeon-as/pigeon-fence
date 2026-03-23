@@ -38,13 +38,6 @@ func New(cfg Config) *Provider {
 	}
 }
 
-// ValidateRule checks nftables-specific rule constraints.
-// Universal validation (protocol, port syntax, addresses) is handled
-// by config.validate() and the runner's post-expansion checks.
-func ValidateRule(_ rule.Rule) error {
-	return nil
-}
-
 func (p *Provider) Name() string { return p.name }
 
 func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.ReconcileResult, error) {

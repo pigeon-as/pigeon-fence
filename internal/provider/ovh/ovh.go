@@ -57,9 +57,7 @@ func New(cfg Config) *Provider {
 }
 
 // ValidateRule checks OVH-specific rule constraints.
-// Universal validation (protocol, port syntax, addresses) is handled
-// by config.validate() and the runner's post-expansion checks.
-func ValidateRule(r rule.Rule) error {
+func (p *Provider) ValidateRule(r rule.Rule) error {
 	if r.Direction != "inbound" {
 		return fmt.Errorf("OVH firewall only supports inbound rules")
 	}
