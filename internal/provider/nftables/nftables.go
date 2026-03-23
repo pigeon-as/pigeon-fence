@@ -218,7 +218,7 @@ func (p *Provider) checkDrift(conn *nftables.Conn, rules []rule.Rule, desiredHas
 
 	// Prepend base rule hashes for each chain.
 	for chainName, ch := range expected {
-		baseHashes := make([]string, baseRuleCount(chainName))
+		baseHashes := make([]string, len(baseRules(chainName)))
 		for i := range baseHashes {
 			baseHashes[i] = baseHashMarker
 		}

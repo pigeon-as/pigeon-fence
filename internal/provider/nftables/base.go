@@ -45,14 +45,6 @@ func baseRules(chainName string) []baseRule {
 	return rules
 }
 
-// baseRuleCount returns how many base rules a chain has.
-func baseRuleCount(chainName string) int {
-	if chainName == "input" {
-		return 3
-	}
-	return 2
-}
-
 // ctStateAcceptExprs: ct state established,related accept
 func ctStateAcceptExprs() []expr.Any {
 	return []expr.Any{
