@@ -16,7 +16,7 @@ rule "ssh" {
   protocol  = "tcp"
   dst_port  = ["22"]
   source    = ["10.0.0.0/8"]
-  action    = "allow"
+  action    = "accept"
   comment   = "SSH access from private network"
 }
 ```
@@ -24,16 +24,16 @@ rule "ssh" {
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | label | yes | Unique rule name |
-| `provider` | reference | yes | Target provider (`provider.nftables`, `provider.ovh`) |
-| `direction` | string | yes | `"inbound"` or `"outbound"` |
-| `action` | string | yes | `"allow"` or `"deny"` |
+| `provider` | reference | yes | Target provider (`provider.nftables`) |
+| `direction` | string | yes | `"inbound"`, `"outbound"`, or `"forward"` |
+| `action` | string | yes | `"accept"`, `"drop"`, or `"reject"` |
 | `protocol` | string | | `"tcp"`, `"udp"`, `"icmp"`, or `"icmpv6"` |
 | `src_port` | list of strings | | Source ports or ranges (`"80"`, `"1024-65535"`) |
 | `dst_port` | list of strings | | Destination ports or ranges |
 | `source` | list of strings | | Source IPs, CIDRs, or `data.*` references |
 | `destination` | list of strings | | Destination IPs, CIDRs, or `data.*` references |
-| `ip` | string | | Target IP (provider-specific) |
-| `interface` | string | | Network interface (provider-specific) |
+| `inbound_interface` | string | | Inbound network interface |
+| `outbound_interface` | string | | Outbound network interface |
 | `comment` | string | | Human-readable description |
 
 ## Usage
@@ -48,8 +48,8 @@ pigeon-fence --config=<path> [--once] [--log-level=info]
 
 | Provider | Description |
 |----------|---------|
-| `nftables` | Linux nftables |
-| `ovh` | OVH IP firewall |
+| `nftables` | Linux nftables (rules + reconciliation) |
+| `ovh` | OVH API client (data sources only) |
 
 ## Data Sources
 
@@ -88,8 +88,8 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
-  interface = "eth0"
+  action    = "accept"
+  inbound_interface = "eth0"
   comment   = "SSH access"
 }
 
@@ -101,7 +101,7 @@ dynamic "rule" {
     direction = "inbound"
     protocol  = "tcp"
     dst_port  = [rule.value.port]
-    action    = "allow"
+    action    = "accept"
     comment   = rule.value.comment
   }
 }

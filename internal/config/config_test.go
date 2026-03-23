@@ -27,7 +27,7 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -51,7 +51,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -76,7 +76,7 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -99,7 +99,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 	writeFile(t, dir, "README.md", "# not HCL")
@@ -135,7 +135,7 @@ rule "https" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = [local.port]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -166,7 +166,7 @@ rule "web" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = [local.port]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -194,7 +194,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = [local.b]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -220,7 +220,7 @@ locals {
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -253,7 +253,7 @@ dynamic "rule" {
     direction = "inbound"
     protocol  = "tcp"
     dst_port  = [rule.value]
-    action    = "allow"
+    action    = "accept"
   }
 }
 `)
@@ -282,7 +282,7 @@ rule "allow_monitoring" {
   source    = [data.dns.monitoring]
   protocol  = "tcp"
   dst_port  = ["443"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -310,7 +310,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -328,13 +328,13 @@ provider "nftables" {}
 rule "ssh" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 
 rule "ssh" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "deny"
+  action    = "drop"
 }
 `)
 
@@ -352,7 +352,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "sideways"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -371,7 +371,7 @@ rule "test" {
   provider  = provider.nftables
   direction = "inbound"
   protocol  = "sctp"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -389,7 +389,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "reject"
+  action    = "bogus"
 }
 `)
 
@@ -407,7 +407,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 
 interval = "not-a-duration"
@@ -427,7 +427,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 
 interval = "0s"
@@ -439,29 +439,116 @@ interval = "0s"
 	}
 }
 
-func TestValidate_UnknownProviderErrors(t *testing.T) {
+func TestLoad_MultipleRules(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "fence.hcl", `
 provider "nftables" {}
-provider "other" {}
 
 rule "test" {
-  provider  = provider.other
+  provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
+}
+
+rule "other" {
+  provider  = provider.nftables
+  direction = "inbound"
+  action    = "accept"
 }
 `)
 
-	// "other" is a valid label in HCL but unknown to our factory.
-	// validate() checks providers[r.Provider], so this should pass
-	// config-level validation (factory rejects unknown types).
-	// The provider ref resolves to the string "other" which is in
-	// the providers map — so config validation passes.
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Rules[0].Provider != "other" {
+	if len(cfg.Rules) != 2 {
+		t.Fatalf("got %d rules, want 2", len(cfg.Rules))
+	}
+}
+
+func TestValidate_InboundOutboundInterfaceErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+rule "test" {
+  provider           = provider.nftables
+  direction          = "inbound"
+  action             = "accept"
+  outbound_interface = "eth0"
+}
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for outbound_interface on inbound rule")
+	}
+}
+
+func TestValidate_OutboundInboundInterfaceErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+rule "test" {
+  provider          = provider.nftables
+  direction         = "outbound"
+  action            = "accept"
+  inbound_interface = "eth0"
+}
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for inbound_interface on outbound rule")
+	}
+}
+
+func TestValidate_ForwardBothInterfacesSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+
+rule "test" {
+  provider           = provider.nftables
+  direction          = "forward"
+  action             = "accept"
+  inbound_interface  = "eth0"
+  outbound_interface = "wg0"
+}
+`)
+
+	_, err := Load(path)
+	if err != nil {
+		t.Fatalf("forward rules should allow both interfaces: %v", err)
+	}
+}
+
+func TestValidate_OVHProviderRulePassesConfig(t *testing.T) {
+	// OVH rules pass config validation (provider is declared).
+	// The factory rejects them because OVH has no reconciler.
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+provider "ovh" {
+  endpoint           = "ovh-eu"
+  application_key    = "key"
+  application_secret = "secret"
+  consumer_key       = "consumer"
+}
+
+rule "test" {
+  provider  = provider.ovh
+  direction = "inbound"
+  action    = "accept"
+}
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("config validation should pass for OVH rules: %v", err)
+	}
+	if cfg.Rules[0].Provider != "ovh" {
 		t.Fatalf("provider = %q", cfg.Rules[0].Provider)
 	}
 }
@@ -476,7 +563,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["abc"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -510,7 +597,7 @@ rule "test" {
   direction = "inbound"
   `+proto+`
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 			_, err := Load(dir)
@@ -536,7 +623,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "`+proto+`"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 			_, err := Load(dir)
@@ -556,7 +643,7 @@ rule "test" {
   provider  = provider.nftables
   direction = "inbound"
   source    = ["not-an-ip"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -572,16 +659,16 @@ func TestValidate_IFNAMSIZErrors(t *testing.T) {
 provider "nftables" {}
 
 rule "test" {
-  provider  = provider.nftables
-  direction = "inbound"
-  interface = "this-name-is-way-too-long"
-  action    = "allow"
+  provider     = provider.nftables
+  direction    = "inbound"
+  inbound_interface = "this-name-is-way-too-long"
+  action       = "accept"
 }
 `)
 
 	_, err := Load(path)
 	if err == nil {
-		t.Fatal("expected error for interface name > 15 chars")
+		t.Fatal("expected error for inbound_interface name > 15 chars")
 	}
 }
 
@@ -601,7 +688,7 @@ data "dns" "test" {
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -627,7 +714,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = local.ports
-  action    = "allow"
+  action    = "accept"
 }
 `)
 

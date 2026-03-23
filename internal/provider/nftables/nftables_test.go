@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/pigeon-as/pigeon-fence/internal/rule"
@@ -27,6 +28,60 @@ func ifname(s string) []byte {
 	b := make([]byte, ifnamsiz)
 	copy(b, s)
 	return b
+}
+
+// --- Direction ---
+
+func TestMapDirection(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		err   bool
+	}{
+		{"inbound", "input", false},
+		{"outbound", "output", false},
+		{"forward", "forward", false},
+		{"bogus", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := mapDirection(tt.input)
+			if tt.err {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChainHookPriority(t *testing.T) {
+	tests := []struct {
+		chain    string
+		wantHook *nftables.ChainHook
+	}{
+		{"input", nftables.ChainHookInput},
+		{"output", nftables.ChainHookOutput},
+		{"forward", nftables.ChainHookForward},
+	}
+	for _, tt := range tests {
+		t.Run(tt.chain, func(t *testing.T) {
+			hook, prio := chainHookPriority(tt.chain)
+			if hook != tt.wantHook {
+				t.Fatalf("hook: got %v, want %v", hook, tt.wantHook)
+			}
+			if prio != nftables.ChainPriorityFilter {
+				t.Fatalf("priority: got %v, want ChainPriorityFilter", prio)
+			}
+		})
+	}
 }
 
 // --- Family ---
@@ -60,17 +115,36 @@ func TestMatchFamily(t *testing.T) {
 
 // --- Interface ---
 
-func TestMatchInterface(t *testing.T) {
+func TestMatchInboundInterface(t *testing.T) {
 	tests := []struct {
 		name string
 		rule rule.Rule
 		want []expr.Any
 	}{
-		{"inbound eth0", rule.Rule{Interface: "eth0", Direction: "inbound"}, []expr.Any{
+		{"eth0", rule.Rule{InboundInterface: "eth0"}, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("eth0")},
 		}},
-		{"outbound eth0", rule.Rule{Interface: "eth0", Direction: "outbound"}, []expr.Any{
+		{"empty", rule.Rule{}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := matchInboundInterface(tt.rule, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			requireExprs(t, tt.want, got)
+		})
+	}
+}
+
+func TestMatchOutboundInterface(t *testing.T) {
+	tests := []struct {
+		name string
+		rule rule.Rule
+		want []expr.Any
+	}{
+		{"eth0", rule.Rule{OutboundInterface: "eth0"}, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("eth0")},
 		}},
@@ -78,7 +152,7 @@ func TestMatchInterface(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchInterface(tt.rule, nil, nil)
+			got, err := matchOutboundInterface(tt.rule, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -175,8 +249,9 @@ func TestMatchAction(t *testing.T) {
 		action string
 		want   []expr.Any
 	}{
-		{"allow", "allow", []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}}},
-		{"deny", "deny", []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}}},
+		{"accept", "accept", []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}}},
+		{"drop", "drop", []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}}},
+		{"reject", "reject", []expr.Any{&expr.Reject{}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -189,7 +264,7 @@ func TestMatchAction(t *testing.T) {
 	}
 
 	t.Run("unknown returns error", func(t *testing.T) {
-		_, err := matchAction(rule.Rule{Action: "reject"}, nil, nil)
+		_, err := matchAction(rule.Rule{Action: "bogus"}, nil, nil)
 		if err == nil {
 			t.Fatal("expected error for unknown action")
 		}
@@ -307,13 +382,13 @@ func TestAddrExprs(t *testing.T) {
 func TestBuildExprs_FullRule(t *testing.T) {
 	// Rule: allow TCP port 22 inbound on eth0 from 10.0.0.0/8.
 	r := rule.Rule{
-		Name:      "ssh",
-		Direction: "inbound",
-		Interface: "eth0",
-		Protocol:  "tcp",
-		DstPort:   []string{"22"},
-		Source:    []string{"10.0.0.0/8"},
-		Action:    "allow",
+		Name:             "ssh",
+		Direction:        "inbound",
+		InboundInterface: "eth0",
+		Protocol:         "tcp",
+		DstPort:          []string{"22"},
+		Source:           []string{"10.0.0.0/8"},
+		Action:           "accept",
 	}
 
 	got, err := buildExprs(r, nil, nil)

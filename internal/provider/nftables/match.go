@@ -34,7 +34,8 @@ type matcher func(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]ex
 // expressions; the concatenated result forms a complete nftables rule.
 var matchers = []matcher{
 	matchFamily,
-	matchInterface,
+	matchInboundInterface,
+	matchOutboundInterface,
 	matchProtocol,
 	matchSrcPort,
 	matchDstPort,
@@ -94,18 +95,26 @@ func detectFamily(r rule.Rule) (byte, error) {
 	return 0, nil
 }
 
-func matchInterface(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
-	if r.Interface == "" {
+func matchInboundInterface(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
+	if r.InboundInterface == "" {
 		return nil, nil
 	}
 	name := make([]byte, ifnamsiz)
-	copy(name, r.Interface)
-	key := expr.MetaKeyIIFNAME
-	if r.Direction == "outbound" {
-		key = expr.MetaKeyOIFNAME
-	}
+	copy(name, r.InboundInterface)
 	return []expr.Any{
-		&expr.Meta{Key: key, Register: 1},
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: name},
+	}, nil
+}
+
+func matchOutboundInterface(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
+	if r.OutboundInterface == "" {
+		return nil, nil
+	}
+	name := make([]byte, ifnamsiz)
+	copy(name, r.OutboundInterface)
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: name},
 	}, nil
 }
@@ -165,10 +174,12 @@ func matchDestination(r rule.Rule, conn *nftables.Conn, table *nftables.Table) (
 
 func matchAction(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
 	switch r.Action {
-	case "allow":
+	case "accept":
 		return []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}}, nil
-	case "deny":
+	case "drop":
 		return []expr.Any{&expr.Verdict{Kind: expr.VerdictDrop}}, nil
+	case "reject":
+		return []expr.Any{&expr.Reject{}}, nil
 	default:
 		return nil, fmt.Errorf("unknown action %q", r.Action)
 	}

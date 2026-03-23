@@ -344,14 +344,14 @@ func validate(cfg Config) error {
 		if r.Direction == "" {
 			return fmt.Errorf("rule[%d] %q: direction is required", i, r.Name)
 		}
-		if r.Direction != "inbound" && r.Direction != "outbound" {
-			return fmt.Errorf("rule[%d] %q: direction must be \"inbound\" or \"outbound\"", i, r.Name)
+		if r.Direction != "inbound" && r.Direction != "outbound" && r.Direction != "forward" {
+			return fmt.Errorf("rule[%d] %q: direction must be \"inbound\", \"outbound\", or \"forward\"", i, r.Name)
 		}
 		if r.Action == "" {
 			return fmt.Errorf("rule[%d] %q: action is required", i, r.Name)
 		}
 		if !rule.ValidActions[r.Action] {
-			return fmt.Errorf("rule[%d] %q: invalid action %q (must be allow or deny)", i, r.Name, r.Action)
+			return fmt.Errorf("rule[%d] %q: invalid action %q (must be accept, drop, or reject)", i, r.Name, r.Action)
 		}
 		if !providers[r.Provider] {
 			return fmt.Errorf("rule[%d] %q: unknown provider type %q", i, r.Name, r.Provider)
@@ -361,8 +361,23 @@ func validate(cfg Config) error {
 			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, icmp, or icmpv6)", i, r.Name, r.Protocol)
 		}
 		// Linux IFNAMSIZ is 16 (including null terminator), so max name is 15 chars.
-		if len(r.Interface) > 15 {
-			return fmt.Errorf("rule[%d] %q: interface name %q too long; maximum length is 15 characters", i, r.Name, r.Interface)
+		if len(r.InboundInterface) > 15 {
+			return fmt.Errorf("rule[%d] %q: inbound_interface name %q too long; maximum length is 15 characters", i, r.Name, r.InboundInterface)
+		}
+		if len(r.OutboundInterface) > 15 {
+			return fmt.Errorf("rule[%d] %q: outbound_interface name %q too long; maximum length is 15 characters", i, r.Name, r.OutboundInterface)
+		}
+		// Input chains only see inbound interfaces; output chains only see outbound.
+		// Forward chains see both.
+		switch r.Direction {
+		case "inbound":
+			if r.OutboundInterface != "" {
+				return fmt.Errorf("rule[%d] %q: inbound rules may not set outbound_interface", i, r.Name)
+			}
+		case "outbound":
+			if r.InboundInterface != "" {
+				return fmt.Errorf("rule[%d] %q: outbound rules may not set inbound_interface", i, r.Name)
+			}
 		}
 		// Ports only make sense for TCP/UDP — transport header offsets are
 		// meaningless for ICMP/ICMPv6 and would match wrong header bytes.
