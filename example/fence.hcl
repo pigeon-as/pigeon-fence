@@ -1,5 +1,5 @@
 # Example config demonstrating all features:
-# nftables + OVH providers, data sources (OVH, DNS, iface), locals, dynamic blocks, functions.
+# nftables provider, OVH data sources (for shared client), DNS, iface, locals, dynamic blocks, functions.
 
 provider "nftables" {}
 
@@ -37,8 +37,8 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
-  interface = "eth0"
+  action    = "accept"
+  inbound_interface = "eth0"
   comment   = "SSH access"
 }
 
@@ -51,7 +51,7 @@ dynamic "rule" {
     direction = "inbound"
     protocol  = rule.value.proto
     dst_port  = [rule.value.port]
-    action    = "allow"
+    action    = "accept"
     comment   = rule.value.comment
   }
 }
@@ -62,30 +62,8 @@ rule "allow_servers" {
   direction = "inbound"
   source    = [data.ovh_ips.servers]
   protocol  = "tcp"
-  action    = "allow"
+  action    = "accept"
   comment   = "Allow OVH server traffic"
-}
-
-# --- OVH firewall rules (per-IP, applied in order as sequence 0-N) ---
-
-rule "ovh_ssh" {
-  provider  = provider.ovh
-  ip        = "1.2.3.4"
-  direction = "inbound"
-  protocol  = "tcp"
-  dst_port  = ["22"]
-  action    = "allow"
-  comment   = "SSH"
-}
-
-rule "ovh_https" {
-  provider  = provider.ovh
-  ip        = "1.2.3.4"
-  direction = "inbound"
-  protocol  = "tcp"
-  dst_port  = ["443"]
-  action    = "allow"
-  comment   = "HTTPS"
 }
 
 interval  = "60s"

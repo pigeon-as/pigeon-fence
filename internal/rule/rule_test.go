@@ -73,7 +73,7 @@ func TestParsePortOrRange(t *testing.T) {
 
 func TestSplitByFamily(t *testing.T) {
 	t.Run("no addresses passes through", func(t *testing.T) {
-		r := Rule{Name: "test", Action: "allow", Direction: "inbound"}
+		r := Rule{Name: "test", Action: "accept", Direction: "inbound"}
 		got, err := SplitByFamily(r)
 		if err != nil {
 			t.Fatal(err)
@@ -84,7 +84,7 @@ func TestSplitByFamily(t *testing.T) {
 	})
 
 	t.Run("ipv4 only stays single", func(t *testing.T) {
-		r := Rule{Name: "test", Action: "allow", Direction: "inbound", Source: []string{"10.0.0.1"}}
+		r := Rule{Name: "test", Action: "accept", Direction: "inbound", Source: []string{"10.0.0.1"}}
 		got, err := SplitByFamily(r)
 		if err != nil {
 			t.Fatal(err)
@@ -95,7 +95,7 @@ func TestSplitByFamily(t *testing.T) {
 	})
 
 	t.Run("ipv6 only stays single", func(t *testing.T) {
-		r := Rule{Name: "test", Action: "allow", Direction: "inbound", Source: []string{"fd00::1"}}
+		r := Rule{Name: "test", Action: "accept", Direction: "inbound", Source: []string{"fd00::1"}}
 		got, err := SplitByFamily(r)
 		if err != nil {
 			t.Fatal(err)
@@ -108,7 +108,7 @@ func TestSplitByFamily(t *testing.T) {
 	t.Run("mixed ipv4+ipv6 splits into two", func(t *testing.T) {
 		r := Rule{
 			Name:      "test",
-			Action:    "allow",
+			Action:    "accept",
 			Direction: "inbound",
 			Source:    []string{"10.0.0.1", "fd00::1"},
 		}
@@ -129,7 +129,7 @@ func TestSplitByFamily(t *testing.T) {
 }
 
 func TestHashRule(t *testing.T) {
-	r := Rule{Name: "test", Action: "allow", Direction: "inbound"}
+	r := Rule{Name: "test", Action: "accept", Direction: "inbound"}
 
 	t.Run("deterministic", func(t *testing.T) {
 		if HashRule(r) != HashRule(r) {
@@ -138,7 +138,7 @@ func TestHashRule(t *testing.T) {
 	})
 
 	t.Run("unique per rule", func(t *testing.T) {
-		r2 := Rule{Name: "other", Action: "allow", Direction: "inbound"}
+		r2 := Rule{Name: "other", Action: "accept", Direction: "inbound"}
 		if HashRule(r) == HashRule(r2) {
 			t.Fatal("different rules produced same hash")
 		}

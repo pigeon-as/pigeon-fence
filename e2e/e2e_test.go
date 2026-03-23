@@ -176,14 +176,14 @@ rule "allow_ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
   comment   = "SSH"
 }
 
 rule "deny_all" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "deny"
+  action    = "drop"
   comment   = "default deny"
 }
 `)
@@ -217,7 +217,7 @@ rule "block_outbound" {
   direction   = "outbound"
   protocol    = "tcp"
   dst_port    = ["9999"]
-  action      = "deny"
+  action      = "drop"
 }
 `)
 
@@ -239,7 +239,7 @@ rule "allow_ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 
 rule "allow_dns_out" {
@@ -247,7 +247,7 @@ rule "allow_dns_out" {
   direction = "outbound"
   protocol  = "udp"
   dst_port  = ["53"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -272,10 +272,10 @@ func TestInterfaceFilter(t *testing.T) {
 provider "nftables" {}
 
 rule "allow_lo" {
-  provider  = provider.nftables
-  direction = "inbound"
-  interface = "lo"
-  action    = "allow"
+  provider     = provider.nftables
+  direction    = "inbound"
+  inbound_interface = "lo"
+  action       = "accept"
 }
 `)
 
@@ -298,7 +298,7 @@ rule "mixed" {
   source      = ["10.0.0.1", "fd00::1"]
   protocol    = "tcp"
   dst_port    = ["443"]
-  action      = "allow"
+  action      = "accept"
 }
 `)
 
@@ -318,7 +318,7 @@ rule "high_ports" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["8000-9000"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -337,7 +337,7 @@ rule "web" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["80", "443"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -357,7 +357,7 @@ rule "trusted" {
   source      = ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
   protocol    = "tcp"
   dst_port    = ["22"]
-  action      = "allow"
+  action      = "accept"
 }
 `)
 
@@ -377,7 +377,7 @@ rule "subnet" {
   source      = ["10.0.0.0/8"]
   protocol    = "tcp"
   dst_port    = ["22"]
-  action      = "allow"
+  action      = "accept"
 }
 `)
 
@@ -395,14 +395,14 @@ rule "allow_icmp" {
   provider  = provider.nftables
   direction = "inbound"
   protocol  = "icmp"
-  action    = "allow"
+  action    = "accept"
 }
 
 rule "allow_icmpv6" {
   provider  = provider.nftables
   direction = "inbound"
   protocol  = "icmpv6"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -426,7 +426,7 @@ rule "allow_local" {
   source      = [data.dns.local]
   protocol    = "tcp"
   dst_port    = ["22"]
-  action      = "allow"
+  action      = "accept"
 }
 `)
 
@@ -449,7 +449,7 @@ rule "allow_loopback_addrs" {
   provider    = provider.nftables
   direction   = "inbound"
   source      = [data.iface.loopback]
-  action      = "allow"
+  action      = "accept"
 }
 `)
 
@@ -479,7 +479,7 @@ dynamic "rule" {
     direction = "inbound"
     protocol  = "tcp"
     dst_port  = [rule.value]
-    action    = "allow"
+    action    = "accept"
   }
 }
 `)
@@ -504,7 +504,7 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `), 0644); err != nil {
 		t.Fatal(err)
@@ -551,7 +551,7 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 
 rule "http" {
@@ -559,7 +559,7 @@ rule "http" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["80"]
-  action    = "allow"
+  action    = "accept"
 }
 `), 0644); err != nil {
 		t.Fatal(err)
@@ -614,7 +614,7 @@ func TestInvalidConfigExitCode(t *testing.T) {
 	out := fenceFail(t, `
 rule "bad" {
   direction = "sideways"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 	if !strings.Contains(out, "load config") {

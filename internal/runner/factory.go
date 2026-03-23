@@ -53,24 +53,13 @@ func build(logger *slog.Logger, cfg config.Config) ([]providerEntry, []dataEntry
 				rules: rules,
 			})
 		case "ovh":
+			// OVH provider is data-source-only. Create the shared API client
+			// for data sources (ovh_ips) but don't register a providerEntry.
 			client, err := ovhprov.NewClient(pc.Body)
 			if err != nil {
 				return nil, nil, fmt.Errorf("provider %q: %w", pc.Type, err)
 			}
 			ovhClient = client
-
-			rules := filterRules(cfg.Rules, pc.Type)
-			if err := validateRules(rules, ovhprov.ValidateRule); err != nil {
-				return nil, nil, err
-			}
-			entries = append(entries, providerEntry{
-				provider: ovhprov.New(ovhprov.Config{
-					Name:   pc.Type,
-					Logger: logger,
-					Client: client,
-				}),
-				rules: rules,
-			})
 		default:
 			return nil, nil, fmt.Errorf("unknown provider type %q", pc.Type)
 		}

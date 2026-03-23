@@ -10,25 +10,25 @@ import (
 )
 
 // ValidActions defines the actions supported by all providers.
-var ValidActions = map[string]bool{"allow": true, "deny": true}
+var ValidActions = map[string]bool{"accept": true, "drop": true, "reject": true}
 
 // ValidProtocols defines the protocols supported by all providers.
 var ValidProtocols = map[string]bool{"tcp": true, "udp": true, "icmp": true, "icmpv6": true}
 
 // Rule represents a single firewall rule to be reconciled by a provider.
 type Rule struct {
-	Name        string   `hcl:"name,label"`
-	Provider    string   `hcl:"provider"`
-	Direction   string   `hcl:"direction"` // "inbound", "outbound"
-	IP          string   `hcl:"ip,optional"`
-	Source      []string `hcl:"source,optional"`
-	Destination []string `hcl:"destination,optional"`
-	Protocol    string   `hcl:"protocol,optional"`
-	SrcPort     []string `hcl:"src_port,optional"`
-	DstPort     []string `hcl:"dst_port,optional"`
-	Action      string   `hcl:"action"`
-	Interface   string   `hcl:"interface,optional"`
-	Comment     string   `hcl:"comment,optional"`
+	Name              string   `hcl:"name,label"`
+	Provider          string   `hcl:"provider"`
+	Direction         string   `hcl:"direction"` // "inbound", "outbound", "forward"
+	Source            []string `hcl:"source,optional"`
+	Destination       []string `hcl:"destination,optional"`
+	Protocol          string   `hcl:"protocol,optional"`
+	SrcPort           []string `hcl:"src_port,optional"`
+	DstPort           []string `hcl:"dst_port,optional"`
+	Action            string   `hcl:"action"`
+	InboundInterface  string   `hcl:"inbound_interface,optional"`
+	OutboundInterface string   `hcl:"outbound_interface,optional"`
+	Comment           string   `hcl:"comment,optional"`
 }
 
 func (r Rule) ProviderKey() string { return r.Provider }
@@ -38,7 +38,7 @@ func (r Rule) ProviderKey() string { return r.Provider }
 func HashRule(r Rule) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\n",
-		r.Name, r.Direction, r.IP, r.Interface, r.Protocol,
+		r.Name, r.Direction, r.InboundInterface, r.OutboundInterface, r.Protocol,
 		strings.Join(r.SrcPort, ","), strings.Join(r.DstPort, ","),
 		strings.Join(r.Source, ","), strings.Join(r.Destination, ","),
 		r.Action, r.Comment)

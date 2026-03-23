@@ -278,6 +278,8 @@ func mapDirection(dir string) (string, error) {
 		return "input", nil
 	case "outbound":
 		return "output", nil
+	case "forward":
+		return "forward", nil
 	default:
 		return "", fmt.Errorf("invalid direction %q", dir)
 	}

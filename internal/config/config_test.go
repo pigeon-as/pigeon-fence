@@ -27,7 +27,7 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -51,7 +51,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -76,7 +76,7 @@ rule "ssh" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -99,7 +99,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 	writeFile(t, dir, "README.md", "# not HCL")
@@ -135,7 +135,7 @@ rule "https" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = [local.port]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -166,7 +166,7 @@ rule "web" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = [local.port]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -194,7 +194,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = [local.b]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -220,7 +220,7 @@ locals {
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -253,7 +253,7 @@ dynamic "rule" {
     direction = "inbound"
     protocol  = "tcp"
     dst_port  = [rule.value]
-    action    = "allow"
+    action    = "accept"
   }
 }
 `)
@@ -282,7 +282,7 @@ rule "allow_monitoring" {
   source    = [data.dns.monitoring]
   protocol  = "tcp"
   dst_port  = ["443"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -310,7 +310,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -328,13 +328,13 @@ provider "nftables" {}
 rule "ssh" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 
 rule "ssh" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "deny"
+  action    = "drop"
 }
 `)
 
@@ -352,7 +352,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "sideways"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -371,7 +371,7 @@ rule "test" {
   provider  = provider.nftables
   direction = "inbound"
   protocol  = "sctp"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -407,7 +407,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 
 interval = "not-a-duration"
@@ -427,7 +427,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 
 interval = "0s"
@@ -448,7 +448,7 @@ provider "other" {}
 rule "test" {
   provider  = provider.other
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -476,7 +476,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = ["abc"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -510,7 +510,7 @@ rule "test" {
   direction = "inbound"
   `+proto+`
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 			_, err := Load(dir)
@@ -536,7 +536,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "`+proto+`"
   dst_port  = ["22"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 			_, err := Load(dir)
@@ -556,7 +556,7 @@ rule "test" {
   provider  = provider.nftables
   direction = "inbound"
   source    = ["not-an-ip"]
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -572,16 +572,16 @@ func TestValidate_IFNAMSIZErrors(t *testing.T) {
 provider "nftables" {}
 
 rule "test" {
-  provider  = provider.nftables
-  direction = "inbound"
-  interface = "this-name-is-way-too-long"
-  action    = "allow"
+  provider     = provider.nftables
+  direction    = "inbound"
+  inbound_interface = "this-name-is-way-too-long"
+  action       = "accept"
 }
 `)
 
 	_, err := Load(path)
 	if err == nil {
-		t.Fatal("expected error for interface name > 15 chars")
+		t.Fatal("expected error for inbound_interface name > 15 chars")
 	}
 }
 
@@ -601,7 +601,7 @@ data "dns" "test" {
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
@@ -627,7 +627,7 @@ rule "test" {
   direction = "inbound"
   protocol  = "tcp"
   dst_port  = local.ports
-  action    = "allow"
+  action    = "accept"
 }
 `)
 
