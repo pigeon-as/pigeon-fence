@@ -389,7 +389,7 @@ provider "nftables" {}
 rule "test" {
   provider  = provider.nftables
   direction = "inbound"
-  action    = "reject"
+  action    = "bogus"
 }
 `)
 
