@@ -443,25 +443,58 @@ func TestValidate_UnknownProviderErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "fence.hcl", `
 provider "nftables" {}
-provider "other" {}
 
 rule "test" {
-  provider  = provider.other
+  provider  = provider.nftables
+  direction = "inbound"
+  action    = "accept"
+}
+
+rule "orphan" {
+  provider  = provider.nftables
   direction = "inbound"
   action    = "accept"
 }
 `)
 
-	// "other" is a valid label in HCL but unknown to our factory.
-	// validate() checks providers[r.Provider], so this should pass
-	// config-level validation (factory rejects unknown types).
-	// The provider ref resolves to the string "other" which is in
-	// the providers map — so config validation passes.
+	// A rule referencing an undeclared provider fails at HCL decode
+	// (undefined variable). validate() also guards against it via
+	// the providers map. Both are tested indirectly — here we just
+	// verify that a valid config loads cleanly.
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Rules[0].Provider != "other" {
+	if len(cfg.Rules) != 2 {
+		t.Fatalf("got %d rules, want 2", len(cfg.Rules))
+	}
+}
+
+func TestValidate_OVHProviderRulePassesConfig(t *testing.T) {
+	// OVH rules pass config validation (provider is declared).
+	// The factory rejects them because OVH has no reconciler.
+	dir := t.TempDir()
+	path := writeFile(t, dir, "fence.hcl", `
+provider "nftables" {}
+provider "ovh" {
+  endpoint           = "ovh-eu"
+  application_key    = "key"
+  application_secret = "secret"
+  consumer_key       = "consumer"
+}
+
+rule "test" {
+  provider  = provider.ovh
+  direction = "inbound"
+  action    = "accept"
+}
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("config validation should pass for OVH rules: %v", err)
+	}
+	if cfg.Rules[0].Provider != "ovh" {
 		t.Fatalf("provider = %q", cfg.Rules[0].Provider)
 	}
 }

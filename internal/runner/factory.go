@@ -100,6 +100,17 @@ func build(logger *slog.Logger, cfg config.Config) ([]providerEntry, []dataEntry
 		logger.Debug("created data source", "key", dc.Key(), "type", dc.Type)
 	}
 
+	// Reject rules that target a provider without a reconciler.
+	reconcilers := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		reconcilers[e.provider.Name()] = true
+	}
+	for _, r := range cfg.Rules {
+		if !reconcilers[r.ProviderKey()] {
+			return nil, nil, fmt.Errorf("rule %q: provider %q does not support rules", r.Name, r.ProviderKey())
+		}
+	}
+
 	return entries, sources, nil
 }
 

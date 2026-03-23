@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/pigeon-as/pigeon-fence/internal/rule"
@@ -27,6 +28,60 @@ func ifname(s string) []byte {
 	b := make([]byte, ifnamsiz)
 	copy(b, s)
 	return b
+}
+
+// --- Direction ---
+
+func TestMapDirection(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		err   bool
+	}{
+		{"inbound", "input", false},
+		{"outbound", "output", false},
+		{"forward", "forward", false},
+		{"bogus", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := mapDirection(tt.input)
+			if tt.err {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChainHookPriority(t *testing.T) {
+	tests := []struct {
+		chain    string
+		wantHook *nftables.ChainHook
+	}{
+		{"input", nftables.ChainHookInput},
+		{"output", nftables.ChainHookOutput},
+		{"forward", nftables.ChainHookForward},
+	}
+	for _, tt := range tests {
+		t.Run(tt.chain, func(t *testing.T) {
+			hook, prio := chainHookPriority(tt.chain)
+			if hook != tt.wantHook {
+				t.Fatalf("hook: got %v, want %v", hook, tt.wantHook)
+			}
+			if prio != nftables.ChainPriorityFilter {
+				t.Fatalf("priority: got %v, want ChainPriorityFilter", prio)
+			}
+		})
+	}
 }
 
 // --- Family ---
