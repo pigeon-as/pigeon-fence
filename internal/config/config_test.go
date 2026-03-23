@@ -439,7 +439,7 @@ interval = "0s"
 	}
 }
 
-func TestValidate_UnknownProviderErrors(t *testing.T) {
+func TestLoad_MultipleRules(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "fence.hcl", `
 provider "nftables" {}
@@ -450,17 +450,13 @@ rule "test" {
   action    = "accept"
 }
 
-rule "orphan" {
+rule "other" {
   provider  = provider.nftables
   direction = "inbound"
   action    = "accept"
 }
 `)
 
-	// A rule referencing an undeclared provider fails at HCL decode
-	// (undefined variable). validate() also guards against it via
-	// the providers map. Both are tested indirectly — here we just
-	// verify that a valid config loads cleanly.
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)

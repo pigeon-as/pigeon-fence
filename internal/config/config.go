@@ -367,6 +367,18 @@ func validate(cfg Config) error {
 		if len(r.OutboundInterface) > 15 {
 			return fmt.Errorf("rule[%d] %q: outbound_interface name %q too long; maximum length is 15 characters", i, r.Name, r.OutboundInterface)
 		}
+		// Input chains only see inbound interfaces; output chains only see outbound.
+		// Forward chains see both.
+		switch r.Direction {
+		case "inbound":
+			if r.OutboundInterface != "" {
+				return fmt.Errorf("rule[%d] %q: inbound rules may not set outbound_interface", i, r.Name)
+			}
+		case "outbound":
+			if r.InboundInterface != "" {
+				return fmt.Errorf("rule[%d] %q: outbound rules may not set inbound_interface", i, r.Name)
+			}
+		}
 		// Ports only make sense for TCP/UDP — transport header offsets are
 		// meaningless for ICMP/ICMPv6 and would match wrong header bytes.
 		if (len(r.SrcPort) > 0 || len(r.DstPort) > 0) && r.Protocol != "tcp" && r.Protocol != "udp" {
