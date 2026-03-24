@@ -64,19 +64,22 @@ func (r *Runner) reconcile(ctx context.Context) error {
 	r.logger.Debug("reconcile tick")
 
 	resolved := make(map[string][]string)
+	failed := make(map[string]bool)
+	var errs []error
 	for _, ds := range r.dataSources {
 		vals, err := ds.source.Resolve(ctx)
 		if err != nil {
 			r.logger.Error("resolve data source", "source", ds.key, "err", err)
-			return fmt.Errorf("data source %s: %w", ds.key, err)
+			failed[ds.key] = true
+			errs = append(errs, fmt.Errorf("data source %s: %w", ds.key, err))
+			continue
 		}
 		resolved[ds.key] = vals
 		r.logger.Debug("resolved data source", "source", ds.key, "count", len(vals))
 	}
 
-	var errs []error
 	for _, e := range r.entries {
-		expanded, err := expandRules(e.rules, resolved, r.logger)
+		expanded, err := expandRules(e.rules, resolved, failed, r.logger)
 		if err != nil {
 			r.logger.Error("expand rules", "provider", e.provider.Name(), "err", err)
 			errs = append(errs, err)
@@ -98,9 +101,14 @@ func (r *Runner) reconcile(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.Logger) ([]rule.Rule, error) {
+func expandRules(rules []rule.Rule, resolved map[string][]string, failed map[string]bool, logger *slog.Logger) ([]rule.Rule, error) {
 	var out []rule.Rule
 	for _, r := range rules {
+		if key, ok := refsFailedSource(r, failed); ok {
+			logger.Warn("rule skipped: data source unavailable", "rule", r.Name, "source", key)
+			continue
+		}
+
 		expanded := r
 		var err error
 		expanded.Source, err = rule.ExpandDataRefs(r.Source, resolved)
@@ -150,4 +158,20 @@ func hasDataRef(vals []string) bool {
 		}
 	}
 	return false
+}
+
+// refsFailedSource reports whether a rule references a data source that failed
+// to resolve. Returns the failed key and true if found.
+func refsFailedSource(r rule.Rule, failed map[string]bool) (string, bool) {
+	for _, v := range r.Source {
+		if failed[v] {
+			return v, true
+		}
+	}
+	for _, v := range r.Destination {
+		if failed[v] {
+			return v, true
+		}
+	}
+	return "", false
 }

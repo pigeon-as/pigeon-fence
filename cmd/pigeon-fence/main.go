@@ -4,7 +4,7 @@
 //
 // Usage:
 //
-//	pigeon-fence --config=<path> [--once] [--log-level=info]
+//	pigeon-fence --config=<path> [--config=<path>...] [--once] [--log-level=info]
 package main
 
 import (
@@ -14,18 +14,29 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/pigeon-as/pigeon-fence/internal/config"
 	"github.com/pigeon-as/pigeon-fence/internal/runner"
 )
 
+// stringSlice implements flag.Value for repeated --config flags.
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ", ") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 func main() {
+	var configPaths stringSlice
+	flag.Var(&configPaths, "config", "Path to HCL config file or directory (repeatable, required)")
 	var (
-		configPath = flag.String("config", "", "Path to HCL config file or directory (required)")
-		once       = flag.Bool("once", false, "Reconcile all rules once and exit")
-		logLevel   = flag.String("log-level", "", "Log level (debug, info, warn, error)")
-		version    = flag.Bool("version", false, "Print version and exit")
+		once     = flag.Bool("once", false, "Reconcile all rules once and exit")
+		logLevel = flag.String("log-level", "", "Log level (debug, info, warn, error)")
+		version  = flag.Bool("version", false, "Print version and exit")
 	)
 	flag.Parse()
 
@@ -34,12 +45,12 @@ func main() {
 		return
 	}
 
-	if *configPath == "" {
+	if len(configPaths) == 0 {
 		fmt.Fprintln(os.Stderr, "--config is required")
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(configPaths...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
