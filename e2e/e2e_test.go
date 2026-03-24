@@ -118,7 +118,8 @@ func getChain(t *testing.T, chainName string) *nftables.Chain {
 	return nil
 }
 
-// getRules returns the rules in a chain of the pigeon-fence table.
+// getRules returns all rules in a chain of the pigeon-fence table,
+// including automatic base rules (ct state, lo accept).
 func getRules(t *testing.T, chainName string) []*nftables.Rule {
 	t.Helper()
 	chain := getChain(t, chainName)
@@ -131,6 +132,18 @@ func getRules(t *testing.T, chainName string) []*nftables.Rule {
 		t.Fatalf("GetRules: %v", err)
 	}
 	return rules
+}
+
+// getUserRules returns only user-defined rules (excludes base rules).
+func getUserRules(t *testing.T, chainName string) []*nftables.Rule {
+	t.Helper()
+	var user []*nftables.Rule
+	for _, r := range getRules(t, chainName) {
+		if !strings.Contains(string(r.UserData), "__base") {
+			user = append(user, r)
+		}
+	}
+	return user
 }
 
 // getTable returns the pigeon-fence table, or nil.
@@ -188,7 +201,7 @@ rule "deny_all" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2", len(rules))
 	}
@@ -221,7 +234,7 @@ rule "block_outbound" {
 }
 `)
 
-	rules := getRules(t, "output")
+	rules := getUserRules(t, "output")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -251,11 +264,11 @@ rule "allow_dns_out" {
 }
 `)
 
-	inRules := getRules(t, "input")
+	inRules := getUserRules(t, "input")
 	if len(inRules) != 1 {
 		t.Fatalf("input rule count = %d, want 1", len(inRules))
 	}
-	outRules := getRules(t, "output")
+	outRules := getUserRules(t, "output")
 	if len(outRules) != 1 {
 		t.Fatalf("output rule count = %d, want 1", len(outRules))
 	}
@@ -279,7 +292,7 @@ rule "allow_lo" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -303,7 +316,7 @@ rule "mixed" {
 `)
 
 	// SplitByFamily produces 2 rules (one IPv4, one IPv6).
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2 (split by family)", len(rules))
 	}
@@ -322,7 +335,7 @@ rule "high_ports" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -341,7 +354,7 @@ rule "web" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -361,7 +374,7 @@ rule "trusted" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -381,7 +394,7 @@ rule "subnet" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 1 {
 		t.Fatalf("rule count = %d, want 1", len(rules))
 	}
@@ -406,7 +419,7 @@ rule "allow_icmpv6" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2", len(rules))
 	}
@@ -431,7 +444,7 @@ rule "allow_local" {
 `)
 
 	// localhost resolves to 127.0.0.1 and/or ::1.
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) < 1 {
 		t.Fatalf("rule count = %d, want >= 1", len(rules))
 	}
@@ -454,7 +467,7 @@ rule "allow_loopback_addrs" {
 `)
 
 	// lo has 127.0.0.1 and ::1 — mixed family split.
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) < 1 {
 		t.Fatalf("rule count = %d, want >= 1", len(rules))
 	}
@@ -484,7 +497,7 @@ dynamic "rule" {
 }
 `)
 
-	rules := getRules(t, "input")
+	rules := getUserRules(t, "input")
 	if len(rules) != 2 {
 		t.Fatalf("rule count = %d, want 2", len(rules))
 	}
@@ -572,9 +585,10 @@ rule "http" {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	if len(getRules(t, "input")) != 2 {
-		t.Fatal("expected 2 rules after first run")
+	if len(getUserRules(t, "input")) != 2 {
+		t.Fatal("expected 2 user rules after first run")
 	}
+	totalBefore := len(getRules(t, "input"))
 
 	// Simulate drift: delete one rule from kernel.
 	chain := getChain(t, "input")
@@ -586,8 +600,8 @@ rule "http" {
 			t.Fatalf("manual delete: %v", err)
 		}
 	}
-	if len(getRules(t, "input")) != 1 {
-		t.Fatal("expected 1 rule after drift")
+	if len(getRules(t, "input")) != totalBefore-1 {
+		t.Fatalf("expected %d rules after drift, got %d", totalBefore-1, len(getRules(t, "input")))
 	}
 
 	// Run again — should recover.
@@ -596,8 +610,8 @@ rule "http" {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("recovery run: %v", err)
 	}
-	if len(getRules(t, "input")) != 2 {
-		t.Fatalf("rule count after recovery = %d, want 2", len(getRules(t, "input")))
+	if len(getUserRules(t, "input")) != 2 {
+		t.Fatalf("user rule count after recovery = %d, want 2", len(getUserRules(t, "input")))
 	}
 }
 
