@@ -112,11 +112,11 @@ func parseBody(paths []string) (hcl.Body, error) {
 		if !fi.IsDir() {
 			data, err := os.ReadFile(path)
 			if err != nil {
-				return nil, fmt.Errorf("read config: %w", err)
+				return nil, fmt.Errorf("read %s: %w", path, err)
 			}
 			file, diags := parser.ParseHCL(data, path)
 			if diags.HasErrors() {
-				return nil, fmt.Errorf("parse config: %s", diags.Error())
+				return nil, fmt.Errorf("parse %s: %s", path, diags.Error())
 			}
 			files = append(files, file)
 			continue
@@ -124,7 +124,7 @@ func parseBody(paths []string) (hcl.Body, error) {
 
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return nil, fmt.Errorf("read config dir: %w", err)
+			return nil, fmt.Errorf("read dir %s: %w", path, err)
 		}
 
 		var names []string
@@ -137,13 +137,14 @@ func parseBody(paths []string) (hcl.Body, error) {
 		sort.Strings(names)
 
 		for _, name := range names {
-			data, err := os.ReadFile(filepath.Join(path, name))
+			full := filepath.Join(path, name)
+			data, err := os.ReadFile(full)
 			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", name, err)
+				return nil, fmt.Errorf("read %s: %w", full, err)
 			}
-			file, diags := parser.ParseHCL(data, name)
+			file, diags := parser.ParseHCL(data, full)
 			if diags.HasErrors() {
-				return nil, fmt.Errorf("parse %s: %s", name, diags.Error())
+				return nil, fmt.Errorf("parse %s: %s", full, diags.Error())
 			}
 			files = append(files, file)
 		}
