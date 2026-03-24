@@ -56,11 +56,13 @@ func (c Config) IntervalDuration() time.Duration {
 	return d
 }
 
-// Load reads HCL config from a file or directory.
-// Directory: all *.hcl files merged in alphabetical order.
+// Load reads HCL config from one or more files or directories.
+// Directories: all *.hcl files merged in alphabetical order.
+// Multiple paths: files collected from all paths, merged together.
+// Missing paths are skipped — useful when a config directory doesn't exist yet.
 // Two-pass: first extracts labels+locals for EvalContext, then decodes with dynblock expansion.
-func Load(path string) (Config, error) {
-	body, err := parseBody(path)
+func Load(paths ...string) (Config, error) {
+	body, err := parseBody(paths)
 	if err != nil {
 		return Config{}, err
 	}
@@ -94,55 +96,62 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-func parseBody(path string) (hcl.Body, error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("config path: %w", err)
-	}
-
+func parseBody(paths []string) (hcl.Body, error) {
 	parser := hclparse.NewParser()
+	var files []*hcl.File
 
-	if !fi.IsDir() {
-		data, err := os.ReadFile(path)
+	for _, path := range paths {
+		fi, err := os.Stat(path)
 		if err != nil {
-			return nil, fmt.Errorf("read config: %w", err)
+			if os.IsNotExist(err) {
+				continue // skip missing paths
+			}
+			return nil, fmt.Errorf("config path %q: %w", path, err)
 		}
-		file, diags := parser.ParseHCL(data, path)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("parse config: %s", diags.Error())
-		}
-		return file.Body, nil
-	}
 
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config dir: %w", err)
-	}
-
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".hcl") {
+		if !fi.IsDir() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", path, err)
+			}
+			file, diags := parser.ParseHCL(data, path)
+			if diags.HasErrors() {
+				return nil, fmt.Errorf("parse %s: %s", path, diags.Error())
+			}
+			files = append(files, file)
 			continue
 		}
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
 
-	if len(names) == 0 {
-		return nil, fmt.Errorf("no *.hcl files in %s", path)
-	}
-
-	var files []*hcl.File
-	for _, name := range names {
-		data, err := os.ReadFile(filepath.Join(path, name))
+		entries, err := os.ReadDir(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", name, err)
+			return nil, fmt.Errorf("read dir %s: %w", path, err)
 		}
-		file, diags := parser.ParseHCL(data, name)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("parse %s: %s", name, diags.Error())
+
+		var names []string
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".hcl") {
+				continue
+			}
+			names = append(names, e.Name())
 		}
-		files = append(files, file)
+		sort.Strings(names)
+
+		for _, name := range names {
+			full := filepath.Join(path, name)
+			data, err := os.ReadFile(full)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", full, err)
+			}
+			file, diags := parser.ParseHCL(data, full)
+			if diags.HasErrors() {
+				return nil, fmt.Errorf("parse %s: %s", full, diags.Error())
+			}
+			files = append(files, file)
+		}
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no *.hcl files found in config paths")
 	}
 
 	return hcl.MergeFiles(files), nil

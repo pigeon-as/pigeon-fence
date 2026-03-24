@@ -698,6 +698,75 @@ rule "test" {
 	}
 }
 
+func TestLoad_MultiplePaths(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	writeFile(t, dir1, "base.hcl", `
+provider "nftables" {}
+
+rule "ssh" {
+  provider  = provider.nftables
+  direction = "inbound"
+  protocol  = "tcp"
+  dst_port  = ["22"]
+  action    = "accept"
+}
+`)
+	writeFile(t, dir2, "extra.hcl", `
+rule "https" {
+  provider  = provider.nftables
+  direction = "inbound"
+  protocol  = "tcp"
+  dst_port  = ["443"]
+  action    = "accept"
+}
+`)
+
+	cfg, err := Load(dir1, dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers = %d, want 1", len(cfg.Providers))
+	}
+	if len(cfg.Rules) != 2 {
+		t.Fatalf("rules = %d, want 2", len(cfg.Rules))
+	}
+}
+
+func TestLoad_MissingPathSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "base.hcl", `
+provider "nftables" {}
+
+rule "ssh" {
+  provider  = provider.nftables
+  direction = "inbound"
+  protocol  = "tcp"
+  dst_port  = ["22"]
+  action    = "accept"
+}
+`)
+
+	cfg, err := Load(dir, "/nonexistent/path/does/not/exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(cfg.Rules))
+	}
+}
+
+func TestLoad_AllPathsMissingErrors(t *testing.T) {
+	_, err := Load("/nonexistent/a", "/nonexistent/b")
+	if err == nil {
+		t.Fatal("expected error when all paths are missing")
+	}
+	if !strings.Contains(err.Error(), "no *.hcl files") {
+		t.Fatalf("error = %v, want 'no *.hcl files'", err)
+	}
+}
+
 func TestLoad_HCLFunctions(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "fence.hcl", `
