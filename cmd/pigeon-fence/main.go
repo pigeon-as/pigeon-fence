@@ -21,6 +21,13 @@ import (
 	"github.com/pigeon-as/pigeon-fence/internal/runner"
 )
 
+var version = "dev"
+
+func fatal(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
+}
+
 // stringSlice implements flag.Value for repeated --config flags.
 type stringSlice []string
 
@@ -34,26 +41,24 @@ func main() {
 	var configPaths stringSlice
 	flag.Var(&configPaths, "config", "Path to HCL config file or directory (repeatable, required)")
 	var (
-		once     = flag.Bool("once", false, "Reconcile all rules once and exit")
-		logLevel = flag.String("log-level", "", "Log level (debug, info, warn, error)")
-		version  = flag.Bool("version", false, "Print version and exit")
+		once        = flag.Bool("once", false, "Reconcile all rules once and exit")
+		logLevel    = flag.String("log-level", "", "Log level (debug, info, warn, error)")
+		showVersion = flag.Bool("version", false, "Print version and exit")
 	)
 	flag.Parse()
 
-	if *version {
-		fmt.Println("pigeon-fence v0.1.0")
+	if *showVersion {
+		fmt.Println("pigeon-fence " + version)
 		return
 	}
 
 	if len(configPaths) == 0 {
-		fmt.Fprintln(os.Stderr, "--config is required")
-		os.Exit(1)
+		fatal("--config is required")
 	}
 
 	cfg, err := config.Load(configPaths...)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
-		os.Exit(1)
+		fatal("load config: %v", err)
 	}
 
 	if *logLevel != "" {
@@ -61,8 +66,7 @@ func main() {
 	}
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		fmt.Fprintf(os.Stderr, "invalid log-level %q: %v\n", cfg.LogLevel, err)
-		os.Exit(1)
+		fatal("invalid log-level %q: %v", cfg.LogLevel, err)
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: level,
@@ -70,13 +74,11 @@ func main() {
 
 	r, err := runner.New(logger, cfg)
 	if err != nil {
-		logger.Error("create runner", "err", err)
-		os.Exit(1)
+		fatal("create runner: %v", err)
 	}
 	if *once {
 		if err := r.Once(); err != nil {
-			logger.Error("reconcile", "err", err)
-			os.Exit(1)
+			fatal("reconcile: %v", err)
 		}
 		return
 	}
@@ -86,7 +88,6 @@ func main() {
 
 	logger.Info("starting", "interval", cfg.Interval)
 	if err := r.Run(ctx); err != nil {
-		logger.Error("run", "err", err)
-		os.Exit(1)
+		fatal("run: %v", err)
 	}
 }

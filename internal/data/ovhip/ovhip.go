@@ -4,7 +4,10 @@ import (
 	"context"
 
 	"github.com/ovh/go-ovh/ovh"
+	"github.com/pigeon-as/pigeon-fence/internal/data"
 )
+
+var _ data.DataSource = (*DataSource)(nil)
 
 type DataSource struct {
 	key    string

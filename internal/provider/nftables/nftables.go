@@ -19,6 +19,8 @@ const (
 	flushRetries     = 3
 )
 
+var _ provider.Provider = (*Provider)(nil)
+
 type Config struct {
 	Name   string
 	Logger *slog.Logger

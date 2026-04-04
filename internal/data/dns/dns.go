@@ -3,7 +3,11 @@ package dns
 import (
 	"context"
 	"net"
+
+	"github.com/pigeon-as/pigeon-fence/internal/data"
 )
+
+var _ data.DataSource = (*DataSource)(nil)
 
 // Config is the HCL body schema for the dns data source.
 type Config struct {

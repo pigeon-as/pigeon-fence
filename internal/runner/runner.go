@@ -120,11 +120,11 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, failed map[str
 			return nil, fmt.Errorf("rule %q destination: %w", r.Name, err)
 		}
 
-		if hasDataRef(r.Source) && len(expanded.Source) == 0 {
+		if slices.ContainsFunc(r.Source, isDataRef) && len(expanded.Source) == 0 {
 			logger.Warn("rule skipped: source data refs resolved to empty", "rule", r.Name)
 			continue
 		}
-		if hasDataRef(r.Destination) && len(expanded.Destination) == 0 {
+		if slices.ContainsFunc(r.Destination, isDataRef) && len(expanded.Destination) == 0 {
 			logger.Warn("rule skipped: destination data refs resolved to empty", "rule", r.Name)
 			continue
 		}
@@ -150,15 +150,8 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, failed map[str
 	return out, nil
 }
 
-// hasDataRef reports whether any element is a data.* reference.
-func hasDataRef(vals []string) bool {
-	for _, v := range vals {
-		if strings.HasPrefix(v, "data.") {
-			return true
-		}
-	}
-	return false
-}
+// isDataRef reports whether a value is a data.* reference.
+func isDataRef(v string) bool { return strings.HasPrefix(v, "data.") }
 
 // refsFailedSource reports whether a rule references a data source that failed
 // to resolve. Returns the failed key and true if found.

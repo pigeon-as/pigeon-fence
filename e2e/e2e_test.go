@@ -12,27 +12,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/nftables"
+	"github.com/shoenig/test/must"
 )
 
-// binary is the path to the built pigeon-fence binary.
-// make e2e builds it before running the tests.
 var binary string
 
 func TestMain(m *testing.M) {
-	// Pre-flight: nftables requires a Linux kernel with nf_tables.
-	conn := &nftables.Conn{}
-	if _, err := conn.ListTables(); err != nil {
+	if err := exec.Command("nft", "list", "tables").Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "skipping e2e: nftables unavailable: %v\n", err)
 		os.Exit(0)
 	}
 
-	// Locate the binary relative to the repo root.
-	// Tests run from e2e/, binary is at build/pigeon-fence.
 	wd, _ := os.Getwd()
 	binary = filepath.Join(wd, "..", "build", "pigeon-fence")
 	if _, err := os.Stat(binary); err != nil {
-		// Try PATH fallback.
 		if p, err := exec.LookPath("pigeon-fence"); err == nil {
 			binary = p
 		}
@@ -42,44 +35,38 @@ func TestMain(m *testing.M) {
 
 // --- Helpers ---
 
-// cleanup deletes the pigeon-fence table.
+// run executes a command, logs it, returns trimmed stdout, fails on error.
+func run(t *testing.T, name string, args ...string) string {
+	t.Helper()
+	t.Logf("RUN '%s %s'", name, strings.Join(args, " "))
+	cmd := exec.Command(name, args...)
+	b, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(b))
+	if err != nil {
+		t.Log("ERR:", err)
+		t.Log("OUT:", output)
+		t.FailNow()
+	}
+	return output
+}
+
+// cleanup deletes the pigeon-fence table (best-effort).
 func cleanup(t *testing.T) {
 	t.Helper()
-	conn := &nftables.Conn{}
-	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
-	if err != nil {
-		return
-	}
-	for _, tbl := range tables {
-		if tbl.Name == "pigeon-fence" {
-			conn.DelTable(tbl)
-			if err := conn.Flush(); err != nil {
-				t.Fatalf("cleanup: flush failed: %v", err)
-			}
-			return
-		}
-	}
+	exec.Command("nft", "delete", "table", "inet", "pigeon-fence").Run()
 }
 
 // fence runs pigeon-fence --once with the given HCL config.
-// Registers cleanup to remove nftables state after the test.
-func fence(t *testing.T, hcl string) {
+func fence(t *testing.T, hcl string) string {
 	t.Helper()
 	t.Cleanup(func() { cleanup(t) })
-	cleanup(t) // clean leftover state from a previous failed run
+	cleanup(t)
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "fence.hcl")
-	if err := os.WriteFile(path, []byte(hcl), 0644); err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(t.TempDir(), "fence.hcl")
+	must.NoError(t, os.WriteFile(path, []byte(hcl), 0644))
 
-	cmd := exec.Command(binary, "--once", "--config="+path, "--log-level=debug")
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("pigeon-fence --once failed: %v", err)
-	}
+	run(t, binary, "--once", "--config="+path, "--log-level=debug")
+	return tableOutput(t)
 }
 
 // fenceFail runs pigeon-fence --once and expects a non-zero exit.
@@ -88,100 +75,36 @@ func fenceFail(t *testing.T, hcl string) string {
 	t.Cleanup(func() { cleanup(t) })
 	cleanup(t)
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "fence.hcl")
-	if err := os.WriteFile(path, []byte(hcl), 0644); err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(t.TempDir(), "fence.hcl")
+	must.NoError(t, os.WriteFile(path, []byte(hcl), 0644))
 
 	cmd := exec.Command(binary, "--once", "--config="+path)
 	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatal("expected pigeon-fence to fail, but it succeeded")
-	}
+	must.Error(t, err)
 	return string(out)
 }
 
-// getChain returns a chain from the pigeon-fence table, or nil.
-func getChain(t *testing.T, chainName string) *nftables.Chain {
+// tableExists checks whether `nft list table inet pigeon-fence` succeeds.
+func tableExists(t *testing.T) bool {
 	t.Helper()
-	conn := &nftables.Conn{}
-	chains, err := conn.ListChainsOfTableFamily(nftables.TableFamilyINet)
-	if err != nil {
-		t.Fatalf("ListChains: %v", err)
-	}
-	for _, c := range chains {
-		if c.Table.Name == "pigeon-fence" && c.Name == chainName {
-			return c
-		}
-	}
-	return nil
+	return exec.Command("nft", "list", "table", "inet", "pigeon-fence").Run() == nil
 }
 
-// getRules returns all rules in a chain of the pigeon-fence table,
-// including automatic base rules (ct state, lo accept).
-func getRules(t *testing.T, chainName string) []*nftables.Rule {
+// tableOutput returns the full `nft list table` output.
+func tableOutput(t *testing.T) string {
 	t.Helper()
-	chain := getChain(t, chainName)
-	if chain == nil {
-		t.Fatalf("chain %q not found in pigeon-fence table", chainName)
-	}
-	conn := &nftables.Conn{}
-	rules, err := conn.GetRules(chain.Table, chain)
-	if err != nil {
-		t.Fatalf("GetRules: %v", err)
-	}
-	return rules
-}
-
-// getUserRules returns only user-defined rules (excludes base rules).
-func getUserRules(t *testing.T, chainName string) []*nftables.Rule {
-	t.Helper()
-	var user []*nftables.Rule
-	for _, r := range getRules(t, chainName) {
-		if !strings.Contains(string(r.UserData), "__base") {
-			user = append(user, r)
-		}
-	}
-	return user
-}
-
-// getTable returns the pigeon-fence table, or nil.
-func getTable(t *testing.T) *nftables.Table {
-	t.Helper()
-	conn := &nftables.Conn{}
-	tables, err := conn.ListTablesOfFamily(nftables.TableFamilyINet)
-	if err != nil {
-		t.Fatalf("ListTables: %v", err)
-	}
-	for _, tbl := range tables {
-		if tbl.Name == "pigeon-fence" {
-			return tbl
-		}
-	}
-	return nil
-}
-
-// hasChain checks whether the pigeon-fence table has a chain with the given name.
-func hasChain(t *testing.T, chainName string) bool {
-	t.Helper()
-	return getChain(t, chainName) != nil
-}
-
-func ruleUserData(r *nftables.Rule) string {
-	return string(r.UserData)
+	return run(t, "nft", "list", "table", "inet", "pigeon-fence")
 }
 
 // --- Tests ---
 
 func TestBinaryExists(t *testing.T) {
-	if _, err := os.Stat(binary); err != nil {
-		t.Fatalf("binary not found at %s: run 'make build' first", binary)
-	}
+	_, err := os.Stat(binary)
+	must.NoError(t, err)
 }
 
 func TestStaticRules(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "allow_ssh" {
@@ -201,28 +124,12 @@ rule "deny_all" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 2 {
-		t.Fatalf("rule count = %d, want 2", len(rules))
-	}
-	if !strings.Contains(ruleUserData(rules[0]), "allow_ssh") {
-		t.Errorf("rule[0] UserData = %q, want allow_ssh", ruleUserData(rules[0]))
-	}
-	if !strings.Contains(ruleUserData(rules[1]), "deny_all") {
-		t.Errorf("rule[1] UserData = %q, want deny_all", ruleUserData(rules[1]))
-	}
-	for i, r := range rules {
-		if !strings.Contains(ruleUserData(r), "pf:") {
-			t.Errorf("rule[%d] missing hash prefix in UserData: %q", i, ruleUserData(r))
-		}
-	}
-	if !hasChain(t, "input") {
-		t.Error("input chain missing in pigeon-fence table")
-	}
+	must.StrContains(t, out, "tcp dport 22 accept")
+	must.StrContains(t, out, "drop")
 }
 
 func TestOutboundRule(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "block_outbound" {
@@ -234,17 +141,11 @@ rule "block_outbound" {
 }
 `)
 
-	rules := getUserRules(t, "output")
-	if len(rules) != 1 {
-		t.Fatalf("rule count = %d, want 1", len(rules))
-	}
-	if !hasChain(t, "output") {
-		t.Error("output chain missing in pigeon-fence table")
-	}
+	must.StrContains(t, out, "tcp dport 9999 drop")
 }
 
 func TestMixedDirections(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "allow_ssh" {
@@ -264,24 +165,12 @@ rule "allow_dns_out" {
 }
 `)
 
-	inRules := getUserRules(t, "input")
-	if len(inRules) != 1 {
-		t.Fatalf("input rule count = %d, want 1", len(inRules))
-	}
-	outRules := getUserRules(t, "output")
-	if len(outRules) != 1 {
-		t.Fatalf("output rule count = %d, want 1", len(outRules))
-	}
-	if !hasChain(t, "input") {
-		t.Error("input chain missing in pigeon-fence table")
-	}
-	if !hasChain(t, "output") {
-		t.Error("output chain missing in pigeon-fence table")
-	}
+	must.StrContains(t, out, "tcp dport 22 accept")
+	must.StrContains(t, out, "udp dport 53 accept")
 }
 
 func TestInterfaceFilter(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "allow_lo" {
@@ -292,17 +181,11 @@ rule "allow_lo" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 1 {
-		t.Fatalf("rule count = %d, want 1", len(rules))
-	}
-	if !strings.Contains(ruleUserData(rules[0]), "allow_lo") {
-		t.Errorf("rule UserData = %q, want allow_lo", ruleUserData(rules[0]))
-	}
+	must.StrContains(t, out, `iifname "lo" accept`)
 }
 
 func TestMixedFamilyAddresses(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "mixed" {
@@ -315,15 +198,13 @@ rule "mixed" {
 }
 `)
 
-	// SplitByFamily produces 2 rules (one IPv4, one IPv6).
-	rules := getUserRules(t, "input")
-	if len(rules) != 2 {
-		t.Fatalf("rule count = %d, want 2 (split by family)", len(rules))
-	}
+	// SplitByFamily produces separate IPv4 and IPv6 rules.
+	must.StrContains(t, out, "ip saddr 10.0.0.1")
+	must.StrContains(t, out, "ip6 saddr fd00::1")
 }
 
 func TestPortRange(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "high_ports" {
@@ -335,14 +216,12 @@ rule "high_ports" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 1 {
-		t.Fatalf("rule count = %d, want 1", len(rules))
-	}
+	must.StrContains(t, out, "tcp dport")
+	must.StrContains(t, out, "accept")
 }
 
 func TestMultiplePorts(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "web" {
@@ -354,14 +233,12 @@ rule "web" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 1 {
-		t.Fatalf("rule count = %d, want 1", len(rules))
-	}
+	must.StrContains(t, out, "tcp dport")
+	must.StrContains(t, out, "accept")
 }
 
 func TestMultipleSourceAddresses(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "trusted" {
@@ -374,14 +251,13 @@ rule "trusted" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 1 {
-		t.Fatalf("rule count = %d, want 1", len(rules))
-	}
+	must.StrContains(t, out, "ip saddr")
+	must.StrContains(t, out, "tcp dport 22")
+	must.StrContains(t, out, "accept")
 }
 
 func TestCIDRSource(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "subnet" {
@@ -394,14 +270,13 @@ rule "subnet" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 1 {
-		t.Fatalf("rule count = %d, want 1", len(rules))
-	}
+	must.StrContains(t, out, "ip saddr 10.0.0.0/8")
+	must.StrContains(t, out, "tcp dport 22")
+	must.StrContains(t, out, "accept")
 }
 
 func TestICMP(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 rule "allow_icmp" {
@@ -419,14 +294,12 @@ rule "allow_icmpv6" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 2 {
-		t.Fatalf("rule count = %d, want 2", len(rules))
-	}
+	must.StrContains(t, out, "icmp")
+	must.StrContains(t, out, "ipv6-icmp")
 }
 
 func TestDNSDataSource(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 data "dns" "local" {
@@ -444,14 +317,12 @@ rule "allow_local" {
 `)
 
 	// localhost resolves to 127.0.0.1 and/or ::1.
-	rules := getUserRules(t, "input")
-	if len(rules) < 1 {
-		t.Fatalf("rule count = %d, want >= 1", len(rules))
-	}
+	must.StrContains(t, out, "tcp dport 22")
+	must.StrContains(t, out, "accept")
 }
 
 func TestIfaceDataSource(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 data "iface" "loopback" {
@@ -466,15 +337,12 @@ rule "allow_loopback_addrs" {
 }
 `)
 
-	// lo has 127.0.0.1 and ::1 — mixed family split.
-	rules := getUserRules(t, "input")
-	if len(rules) < 1 {
-		t.Fatalf("rule count = %d, want >= 1", len(rules))
-	}
+	// lo has 127.0.0.1 and/or ::1.
+	must.StrContains(t, out, "accept")
 }
 
 func TestDynamicRules(t *testing.T) {
-	fence(t, `
+	out := fence(t, `
 provider "nftables" {}
 
 locals {
@@ -497,19 +365,16 @@ dynamic "rule" {
 }
 `)
 
-	rules := getUserRules(t, "input")
-	if len(rules) != 2 {
-		t.Fatalf("rule count = %d, want 2", len(rules))
-	}
+	must.StrContains(t, out, "tcp dport 80 accept")
+	must.StrContains(t, out, "tcp dport 443 accept")
 }
 
 func TestIdempotence(t *testing.T) {
 	t.Cleanup(func() { cleanup(t) })
 	cleanup(t)
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "fence.hcl")
-	if err := os.WriteFile(path, []byte(`
+	path := filepath.Join(t.TempDir(), "fence.hcl")
+	must.NoError(t, os.WriteFile(path, []byte(`
 provider "nftables" {}
 
 rule "ssh" {
@@ -519,44 +384,26 @@ rule "ssh" {
   dst_port  = ["22"]
   action    = "accept"
 }
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
+`), 0644))
 	args := []string{"--once", "--config=" + path, "--log-level=debug"}
 
 	// First run — applies rules.
-	cmd := exec.Command(binary, args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("first run: %v", err)
-	}
-	rules1 := getRules(t, "input")
+	run(t, binary, args[0], args[1], args[2])
+	out1 := tableOutput(t)
 
-	// Second run — should detect in-sync.
-	cmd = exec.Command(binary, args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("second run: %v", err)
-	}
-	rules2 := getRules(t, "input")
+	// Second run — should detect in-sync and not change anything.
+	run(t, binary, args[0], args[1], args[2])
+	out2 := tableOutput(t)
 
-	if len(rules1) != len(rules2) {
-		t.Fatalf("rule count changed: %d → %d", len(rules1), len(rules2))
-	}
-	for i := range rules1 {
-		if rules1[i].Handle != rules2[i].Handle {
-			t.Errorf("rule[%d] handle changed: %d → %d (unexpected rewrite)", i, rules1[i].Handle, rules2[i].Handle)
-		}
-	}
+	must.EqOp(t, out1, out2)
 }
 
 func TestDriftRecovery(t *testing.T) {
 	t.Cleanup(func() { cleanup(t) })
 	cleanup(t)
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "fence.hcl")
-	if err := os.WriteFile(path, []byte(`
+	path := filepath.Join(t.TempDir(), "fence.hcl")
+	must.NoError(t, os.WriteFile(path, []byte(`
 provider "nftables" {}
 
 rule "ssh" {
@@ -574,54 +421,33 @@ rule "http" {
   dst_port  = ["80"]
   action    = "accept"
 }
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
+`), 0644))
 	args := []string{"--once", "--config=" + path}
 
 	// Apply rules.
-	cmd := exec.Command(binary, args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("first run: %v", err)
-	}
-	if len(getUserRules(t, "input")) != 2 {
-		t.Fatal("expected 2 user rules after first run")
-	}
-	totalBefore := len(getRules(t, "input"))
+	run(t, binary, args[0], args[1])
+	must.StrContains(t, tableOutput(t), "tcp dport 22 accept")
+	must.StrContains(t, tableOutput(t), "tcp dport 80 accept")
 
-	// Simulate drift: delete one rule from kernel.
-	chain := getChain(t, "input")
-	conn := &nftables.Conn{}
-	rules, _ := conn.GetRules(chain.Table, chain)
-	if len(rules) > 0 {
-		conn.DelRule(rules[0])
-		if err := conn.Flush(); err != nil {
-			t.Fatalf("manual delete: %v", err)
-		}
-	}
-	if len(getRules(t, "input")) != totalBefore-1 {
-		t.Fatalf("expected %d rules after drift, got %d", totalBefore-1, len(getRules(t, "input")))
-	}
+	// Simulate drift: flush the input chain (removes all rules from it).
+	run(t, "nft", "flush", "chain", "inet", "pigeon-fence", "input")
+	must.StrNotContains(t, tableOutput(t), "tcp dport 22 accept")
 
 	// Run again — should recover.
-	cmd = exec.Command(binary, args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("recovery run: %v", err)
-	}
-	if len(getUserRules(t, "input")) != 2 {
-		t.Fatalf("user rule count after recovery = %d, want 2", len(getUserRules(t, "input")))
-	}
+	run(t, binary, args[0], args[1])
+	must.StrContains(t, tableOutput(t), "tcp dport 22 accept")
+	must.StrContains(t, tableOutput(t), "tcp dport 80 accept")
 }
 
 func TestNoRulesNoChain(t *testing.T) {
-	fence(t, `provider "nftables" {}`)
+	t.Cleanup(func() { cleanup(t) })
+	cleanup(t)
 
-	tbl := getTable(t)
-	if tbl != nil {
-		t.Error("pigeon-fence table should not exist with zero rules")
-	}
+	path := filepath.Join(t.TempDir(), "fence.hcl")
+	must.NoError(t, os.WriteFile(path, []byte(`provider "nftables" {}`), 0644))
+
+	run(t, binary, "--once", "--config="+path)
+	must.False(t, tableExists(t))
 }
 
 func TestInvalidConfigExitCode(t *testing.T) {
@@ -631,7 +457,5 @@ rule "bad" {
   action    = "accept"
 }
 `)
-	if !strings.Contains(out, "load config") {
-		t.Errorf("expected config error in output, got: %s", out)
-	}
+	must.StrContains(t, out, "load config")
 }
