@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -134,7 +134,7 @@ func parseBody(paths []string) (hcl.Body, error) {
 			}
 			names = append(names, e.Name())
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 
 		for _, name := range names {
 			full := filepath.Join(path, name)
@@ -274,7 +274,7 @@ func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
 			queue = append(queue, name)
 		}
 	}
-	sort.Strings(queue)
+	slices.Sort(queue)
 
 	order := make([]string, 0, len(attrs))
 	for len(queue) > 0 {
@@ -282,14 +282,14 @@ func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
 		queue = queue[1:]
 		order = append(order, name)
 		next := dependents[name]
-		sort.Strings(next)
+		slices.Sort(next)
 		for _, d := range next {
 			inDegree[d]--
 			if inDegree[d] == 0 {
 				queue = append(queue, d)
 			}
 		}
-		sort.Strings(queue)
+		slices.Sort(queue)
 	}
 
 	if len(order) != len(attrs) {
@@ -299,7 +299,7 @@ func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
 				cyclic = append(cyclic, name)
 			}
 		}
-		sort.Strings(cyclic)
+		slices.Sort(cyclic)
 		return nil, fmt.Errorf("local.%s: circular dependency", cyclic[0])
 	}
 	return order, nil
@@ -352,14 +352,14 @@ func validate(cfg Config) error {
 		if r.Action == "" {
 			return fmt.Errorf("rule[%d] %q: action is required", i, r.Name)
 		}
-		if !rule.ValidActions[r.Action] {
+		if !rule.IsValidAction(r.Action) {
 			return fmt.Errorf("rule[%d] %q: invalid action %q (must be accept, drop, or reject)", i, r.Name, r.Action)
 		}
 		if !providers[r.Provider] {
 			return fmt.Errorf("rule[%d] %q: unknown provider type %q", i, r.Name, r.Provider)
 		}
 
-		if r.Protocol != "" && !rule.ValidProtocols[r.Protocol] {
+		if r.Protocol != "" && !rule.IsValidProtocol(r.Protocol) {
 			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, icmp, or icmpv6)", i, r.Name, r.Protocol)
 		}
 		// Linux IFNAMSIZ is 16 (including null terminator), so max name is 15 chars.
