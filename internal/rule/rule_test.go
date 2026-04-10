@@ -3,6 +3,8 @@ package rule
 import (
 	"net/netip"
 	"testing"
+
+	"github.com/shoenig/test/must"
 )
 
 func TestParseAddress(t *testing.T) {
@@ -22,17 +24,11 @@ func TestParseAddress(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ParseAddress(tt.input)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				must.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != tt.want {
-				t.Fatalf("got %v, want %v", got, tt.want)
-			}
+			must.NoError(t, err)
+			must.EqOp(t, tt.want, got)
 		})
 	}
 }
@@ -56,17 +52,12 @@ func TestParsePortOrRange(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lo, hi, err := ParsePortOrRange(tt.input)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				must.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if lo != tt.wantLo || hi != tt.wantHi {
-				t.Fatalf("got %d-%d, want %d-%d", lo, hi, tt.wantLo, tt.wantHi)
-			}
+			must.NoError(t, err)
+			must.EqOp(t, tt.wantLo, lo)
+			must.EqOp(t, tt.wantHi, hi)
 		})
 	}
 }
@@ -75,34 +66,22 @@ func TestSplitByFamily(t *testing.T) {
 	t.Run("no addresses passes through", func(t *testing.T) {
 		r := Rule{Name: "test", Action: "accept", Direction: "inbound"}
 		got, err := SplitByFamily(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 1 {
-			t.Fatalf("got %d rules, want 1", len(got))
-		}
+		must.NoError(t, err)
+		must.Len(t, 1, got)
 	})
 
 	t.Run("ipv4 only stays single", func(t *testing.T) {
 		r := Rule{Name: "test", Action: "accept", Direction: "inbound", Source: []string{"10.0.0.1"}}
 		got, err := SplitByFamily(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 1 {
-			t.Fatalf("got %d rules, want 1", len(got))
-		}
+		must.NoError(t, err)
+		must.Len(t, 1, got)
 	})
 
 	t.Run("ipv6 only stays single", func(t *testing.T) {
 		r := Rule{Name: "test", Action: "accept", Direction: "inbound", Source: []string{"fd00::1"}}
 		got, err := SplitByFamily(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 1 {
-			t.Fatalf("got %d rules, want 1", len(got))
-		}
+		must.NoError(t, err)
+		must.Len(t, 1, got)
 	})
 
 	t.Run("mixed ipv4+ipv6 splits into two", func(t *testing.T) {
@@ -113,18 +92,12 @@ func TestSplitByFamily(t *testing.T) {
 			Source:    []string{"10.0.0.1", "fd00::1"},
 		}
 		got, err := SplitByFamily(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 2 {
-			t.Fatalf("got %d rules, want 2", len(got))
-		}
-		if len(got[0].Source) != 1 || got[0].Source[0] != "10.0.0.1" {
-			t.Fatalf("rule[0] source = %v, want [10.0.0.1]", got[0].Source)
-		}
-		if len(got[1].Source) != 1 || got[1].Source[0] != "fd00::1" {
-			t.Fatalf("rule[1] source = %v, want [fd00::1]", got[1].Source)
-		}
+		must.NoError(t, err)
+		must.Len(t, 2, got)
+		must.Len(t, 1, got[0].Source)
+		must.EqOp(t, "10.0.0.1", got[0].Source[0])
+		must.Len(t, 1, got[1].Source)
+		must.EqOp(t, "fd00::1", got[1].Source[0])
 	})
 }
 
@@ -132,16 +105,12 @@ func TestHashRule(t *testing.T) {
 	r := Rule{Name: "test", Action: "accept", Direction: "inbound"}
 
 	t.Run("deterministic", func(t *testing.T) {
-		if HashRule(r) != HashRule(r) {
-			t.Fatal("same rule produced different hashes")
-		}
+		must.EqOp(t, HashRule(r), HashRule(r))
 	})
 
 	t.Run("unique per rule", func(t *testing.T) {
 		r2 := Rule{Name: "other", Action: "accept", Direction: "inbound"}
-		if HashRule(r) == HashRule(r2) {
-			t.Fatal("different rules produced same hash")
-		}
+		must.True(t, HashRule(r) != HashRule(r2))
 	})
 }
 
@@ -152,38 +121,29 @@ func TestExpandDataRefs(t *testing.T) {
 
 	t.Run("resolves data refs", func(t *testing.T) {
 		got, err := ExpandDataRefs([]string{"data.ovh_ips.servers"}, resolved)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 2 || got[0] != "1.2.3.4" || got[1] != "5.6.7.8" {
-			t.Fatalf("got %v, want [1.2.3.4 5.6.7.8]", got)
-		}
+		must.NoError(t, err)
+		must.Len(t, 2, got)
+		must.EqOp(t, "1.2.3.4", got[0])
+		must.EqOp(t, "5.6.7.8", got[1])
 	})
 
 	t.Run("preserves literals alongside refs", func(t *testing.T) {
 		got, err := ExpandDataRefs([]string{"10.0.0.1", "data.ovh_ips.servers"}, resolved)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got) != 3 || got[0] != "10.0.0.1" || got[1] != "1.2.3.4" || got[2] != "5.6.7.8" {
-			t.Fatalf("got %v, want [10.0.0.1 1.2.3.4 5.6.7.8]", got)
-		}
+		must.NoError(t, err)
+		must.Len(t, 3, got)
+		must.EqOp(t, "10.0.0.1", got[0])
+		must.EqOp(t, "1.2.3.4", got[1])
+		must.EqOp(t, "5.6.7.8", got[2])
 	})
 
 	t.Run("empty input", func(t *testing.T) {
 		got, err := ExpandDataRefs(nil, resolved)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != nil {
-			t.Fatalf("got %v, want nil", got)
-		}
+		must.NoError(t, err)
+		must.Nil(t, got)
 	})
 
 	t.Run("unknown data ref errors", func(t *testing.T) {
 		_, err := ExpandDataRefs([]string{"data.unknown.ref"}, resolved)
-		if err == nil {
-			t.Fatal("expected error for unknown data ref")
-		}
+		must.Error(t, err)
 	})
 }

@@ -9,11 +9,17 @@ import (
 	"strings"
 )
 
-// ValidActions defines the actions supported by all providers.
-var ValidActions = map[string]bool{"accept": true, "drop": true, "reject": true}
+// validActions defines the actions supported by all providers.
+var validActions = map[string]bool{"accept": true, "drop": true, "reject": true}
 
-// ValidProtocols defines the protocols supported by all providers.
-var ValidProtocols = map[string]bool{"tcp": true, "udp": true, "icmp": true, "icmpv6": true}
+// validProtocols defines the protocols supported by all providers.
+var validProtocols = map[string]bool{"tcp": true, "udp": true, "icmp": true, "icmpv6": true}
+
+// IsValidAction reports whether s is a supported rule action.
+func IsValidAction(s string) bool { return validActions[s] }
+
+// IsValidProtocol reports whether s is a supported rule protocol.
+func IsValidProtocol(s string) bool { return validProtocols[s] }
 
 // Rule represents a single firewall rule to be reconciled by a provider.
 type Rule struct {

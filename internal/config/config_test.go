@@ -3,17 +3,17 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/shoenig/test/must"
 )
 
 // writeFile creates a temporary HCL file. Returns the file path.
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	err := os.WriteFile(path, []byte(content), 0644)
+	must.NoError(t, err)
 	return path
 }
 
@@ -32,15 +32,11 @@ rule "ssh" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Providers) != 1 || cfg.Providers[0].Type != "nftables" {
-		t.Fatalf("providers = %v", cfg.Providers)
-	}
-	if len(cfg.Rules) != 1 || cfg.Rules[0].Name != "ssh" {
-		t.Fatalf("rules = %v", cfg.Rules)
-	}
+	must.NoError(t, err)
+	must.Len(t, 1, cfg.Providers)
+	must.EqOp(t, "nftables", cfg.Providers[0].Type)
+	must.Len(t, 1, cfg.Rules)
+	must.EqOp(t, "ssh", cfg.Rules[0].Name)
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -56,15 +52,9 @@ rule "test" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Interval != "60s" {
-		t.Fatalf("interval = %q, want 60s", cfg.Interval)
-	}
-	if cfg.LogLevel != "info" {
-		t.Fatalf("log_level = %q, want info", cfg.LogLevel)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "60s", cfg.Interval)
+	must.EqOp(t, "info", cfg.LogLevel)
 }
 
 func TestLoad_DirectoryMerge(t *testing.T) {
@@ -81,15 +71,9 @@ rule "ssh" {
 `)
 
 	cfg, err := Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("providers = %d, want 1", len(cfg.Providers))
-	}
-	if len(cfg.Rules) != 1 {
-		t.Fatalf("rules = %d, want 1", len(cfg.Rules))
-	}
+	must.NoError(t, err)
+	must.Len(t, 1, cfg.Providers)
+	must.Len(t, 1, cfg.Rules)
 }
 
 func TestLoad_DirectoryIgnoresNonHCL(t *testing.T) {
@@ -105,20 +89,14 @@ rule "test" {
 	writeFile(t, dir, "README.md", "# not HCL")
 
 	cfg, err := Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Rules) != 1 {
-		t.Fatalf("rules = %d, want 1", len(cfg.Rules))
-	}
+	must.NoError(t, err)
+	must.Len(t, 1, cfg.Rules)
 }
 
 func TestLoad_EmptyDirectoryErrors(t *testing.T) {
 	dir := t.TempDir()
 	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected error for empty directory")
-	}
+	must.Error(t, err)
 }
 
 func TestLoad_Locals(t *testing.T) {
@@ -140,12 +118,8 @@ rule "https" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Rules[0].DstPort[0] != "443" {
-		t.Fatalf("dst_port = %v, want [443]", cfg.Rules[0].DstPort)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "443", cfg.Rules[0].DstPort[0])
 }
 
 func TestLoad_LocalsInterBlock(t *testing.T) {
@@ -171,12 +145,8 @@ rule "web" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Rules[0].DstPort[0] != "80" {
-		t.Fatalf("dst_port = %v, want [80]", cfg.Rules[0].DstPort)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "80", cfg.Rules[0].DstPort[0])
 }
 
 func TestLoad_LocalsIntraBlockOrder(t *testing.T) {
@@ -199,12 +169,8 @@ rule "test" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Rules[0].DstPort[0] != "443" {
-		t.Fatalf("dst_port = %v, want [443]", cfg.Rules[0].DstPort)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "443", cfg.Rules[0].DstPort[0])
 }
 
 func TestLoad_LocalsCircularErrors(t *testing.T) {
@@ -225,12 +191,8 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for circular locals")
-	}
-	if !strings.Contains(err.Error(), "circular dependency") {
-		t.Fatalf("error = %v, want circular dependency", err)
-	}
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "circular dependency")
 }
 
 func TestLoad_DynamicRules(t *testing.T) {
@@ -259,12 +221,8 @@ dynamic "rule" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Rules) != 2 {
-		t.Fatalf("rules = %d, want 2", len(cfg.Rules))
-	}
+	must.NoError(t, err)
+	must.Len(t, 2, cfg.Rules)
 }
 
 func TestLoad_DataSourceRef(t *testing.T) {
@@ -287,16 +245,10 @@ rule "allow_monitoring" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.DataSources) != 1 {
-		t.Fatalf("data sources = %d, want 1", len(cfg.DataSources))
-	}
+	must.NoError(t, err)
+	must.Len(t, 1, cfg.DataSources)
 	// Source should contain the data ref string.
-	if cfg.Rules[0].Source[0] != "data.dns.monitoring" {
-		t.Fatalf("source = %v, want [data.dns.monitoring]", cfg.Rules[0].Source)
-	}
+	must.EqOp(t, "data.dns.monitoring", cfg.Rules[0].Source[0])
 }
 
 // --- Validation errors ---
@@ -315,9 +267,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for duplicate provider")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_DuplicateRuleNameErrors(t *testing.T) {
@@ -339,9 +289,7 @@ rule "ssh" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for duplicate rule name")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_InvalidDirectionErrors(t *testing.T) {
@@ -357,9 +305,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for invalid direction")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_InvalidProtocolErrors(t *testing.T) {
@@ -376,9 +322,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for invalid protocol")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_InvalidActionErrors(t *testing.T) {
@@ -394,9 +338,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for invalid action")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_InvalidIntervalErrors(t *testing.T) {
@@ -414,9 +356,7 @@ interval = "not-a-duration"
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for invalid interval")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_ZeroIntervalErrors(t *testing.T) {
@@ -434,9 +374,7 @@ interval = "0s"
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for zero interval")
-	}
+	must.Error(t, err)
 }
 
 func TestLoad_MultipleRules(t *testing.T) {
@@ -458,12 +396,8 @@ rule "other" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Rules) != 2 {
-		t.Fatalf("got %d rules, want 2", len(cfg.Rules))
-	}
+	must.NoError(t, err)
+	must.Len(t, 2, cfg.Rules)
 }
 
 func TestValidate_InboundOutboundInterfaceErrors(t *testing.T) {
@@ -480,9 +414,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for outbound_interface on inbound rule")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_OutboundInboundInterfaceErrors(t *testing.T) {
@@ -499,9 +431,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for inbound_interface on outbound rule")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_ForwardBothInterfacesSucceeds(t *testing.T) {
@@ -519,9 +449,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err != nil {
-		t.Fatalf("forward rules should allow both interfaces: %v", err)
-	}
+	must.NoError(t, err)
 }
 
 func TestValidate_OVHProviderRulePassesConfig(t *testing.T) {
@@ -545,12 +473,8 @@ rule "test" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("config validation should pass for OVH rules: %v", err)
-	}
-	if cfg.Rules[0].Provider != "ovh" {
-		t.Fatalf("provider = %q", cfg.Rules[0].Provider)
-	}
+	must.NoError(t, err)
+	must.EqOp(t, "ovh", cfg.Rules[0].Provider)
 }
 
 func TestValidate_InvalidPortErrors(t *testing.T) {
@@ -568,9 +492,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for invalid port")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_PortWithoutTcpUdpErrors(t *testing.T) {
@@ -601,12 +523,8 @@ rule "test" {
 }
 `)
 			_, err := Load(dir)
-			if err == nil {
-				t.Fatalf("expected error for ports with protocol %q", tt.protocol)
-			}
-			if !strings.Contains(err.Error(), "src_port/dst_port require") {
-				t.Fatalf("error = %v", err)
-			}
+			must.Error(t, err)
+			must.StrContains(t, err.Error(), "src_port/dst_port require")
 		})
 	}
 }
@@ -627,9 +545,7 @@ rule "test" {
 }
 `)
 			_, err := Load(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must.NoError(t, err)
 		})
 	}
 }
@@ -648,9 +564,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for invalid address")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_IFNAMSIZErrors(t *testing.T) {
@@ -667,9 +581,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for inbound_interface name > 15 chars")
-	}
+	must.Error(t, err)
 }
 
 func TestValidate_DuplicateDataSourceErrors(t *testing.T) {
@@ -693,9 +605,7 @@ rule "test" {
 `)
 
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for duplicate data source")
-	}
+	must.Error(t, err)
 }
 
 func TestLoad_MultiplePaths(t *testing.T) {
@@ -723,15 +633,9 @@ rule "https" {
 `)
 
 	cfg, err := Load(dir1, dir2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("providers = %d, want 1", len(cfg.Providers))
-	}
-	if len(cfg.Rules) != 2 {
-		t.Fatalf("rules = %d, want 2", len(cfg.Rules))
-	}
+	must.NoError(t, err)
+	must.Len(t, 1, cfg.Providers)
+	must.Len(t, 2, cfg.Rules)
 }
 
 func TestLoad_MissingPathSkipped(t *testing.T) {
@@ -749,22 +653,14 @@ rule "ssh" {
 `)
 
 	cfg, err := Load(dir, "/nonexistent/path/does/not/exist")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Rules) != 1 {
-		t.Fatalf("rules = %d, want 1", len(cfg.Rules))
-	}
+	must.NoError(t, err)
+	must.Len(t, 1, cfg.Rules)
 }
 
 func TestLoad_AllPathsMissingErrors(t *testing.T) {
 	_, err := Load("/nonexistent/a", "/nonexistent/b")
-	if err == nil {
-		t.Fatal("expected error when all paths are missing")
-	}
-	if !strings.Contains(err.Error(), "no *.hcl files") {
-		t.Fatalf("error = %v, want 'no *.hcl files'", err)
-	}
+	must.Error(t, err)
+	must.StrContains(t, err.Error(), "no *.hcl files")
 }
 
 func TestLoad_HCLFunctions(t *testing.T) {
@@ -788,10 +684,6 @@ rule "test" {
 `)
 
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Rules[0].DstPort) != 2 {
-		t.Fatalf("dst_port = %v, want [22, 443]", cfg.Rules[0].DstPort)
-	}
+	must.NoError(t, err)
+	must.Len(t, 2, cfg.Rules[0].DstPort)
 }

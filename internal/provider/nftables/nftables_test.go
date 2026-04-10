@@ -11,6 +11,8 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/shoenig/test/must"
+
 	"github.com/pigeon-as/pigeon-fence/internal/rule"
 )
 
@@ -47,17 +49,11 @@ func TestMapDirection(t *testing.T) {
 		t.Run(tt.input, func(t *testing.T) {
 			got, err := mapDirection(tt.input)
 			if tt.err {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				must.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("got %q, want %q", got, tt.want)
-			}
+			must.NoError(t, err)
+			must.EqOp(t, tt.want, got)
 		})
 	}
 }
@@ -74,12 +70,8 @@ func TestChainHookPriority(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.chain, func(t *testing.T) {
 			hook, prio := chainHookPriority(tt.chain)
-			if hook != tt.wantHook {
-				t.Fatalf("hook: got %v, want %v", hook, tt.wantHook)
-			}
-			if prio != nftables.ChainPriorityFilter {
-				t.Fatalf("priority: got %v, want ChainPriorityFilter", prio)
-			}
+			must.EqOp(t, tt.wantHook, hook)
+			must.EqOp(t, nftables.ChainPriorityFilter, prio)
 		})
 	}
 }
@@ -105,9 +97,7 @@ func TestMatchFamily(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := matchFamily(tt.rule, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
 	}
@@ -130,9 +120,7 @@ func TestMatchInboundInterface(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := matchInboundInterface(tt.rule, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
 	}
@@ -153,9 +141,7 @@ func TestMatchOutboundInterface(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := matchOutboundInterface(tt.rule, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
 	}
@@ -186,9 +172,7 @@ func TestMatchProtocol(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := matchProtocol(rule.Rule{Protocol: tt.protocol}, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
 	}
@@ -196,9 +180,7 @@ func TestMatchProtocol(t *testing.T) {
 	t.Run("icmpv6 explicit", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmpv6"}
 		got, err := matchProtocol(r, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{syscall.IPPROTO_ICMPV6}},
@@ -208,25 +190,19 @@ func TestMatchProtocol(t *testing.T) {
 	t.Run("icmp with ipv6 errors", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmp", Source: []string{"fd00::1"}}
 		_, err := matchProtocol(r, nil, nil)
-		if err == nil {
-			t.Fatal("expected error for icmp with IPv6 addresses")
-		}
+		must.Error(t, err)
 	})
 
 	t.Run("icmpv6 with ipv4 errors", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmpv6", Source: []string{"10.0.0.1"}}
 		_, err := matchProtocol(r, nil, nil)
-		if err == nil {
-			t.Fatal("expected error for icmpv6 with IPv4 addresses")
-		}
+		must.Error(t, err)
 	})
 
 	t.Run("icmp ipv4 stays ICMP", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmp", Source: []string{"10.0.0.1"}}
 		got, err := matchProtocol(r, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{syscall.IPPROTO_ICMP}},
@@ -235,9 +211,7 @@ func TestMatchProtocol(t *testing.T) {
 
 	t.Run("unknown returns error", func(t *testing.T) {
 		_, err := matchProtocol(rule.Rule{Protocol: "sctp"}, nil, nil)
-		if err == nil {
-			t.Fatal("expected error for unknown protocol")
-		}
+		must.Error(t, err)
 	})
 }
 
@@ -256,18 +230,14 @@ func TestMatchAction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := matchAction(rule.Rule{Action: tt.action}, nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
+			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
 	}
 
 	t.Run("unknown returns error", func(t *testing.T) {
 		_, err := matchAction(rule.Rule{Action: "bogus"}, nil, nil)
-		if err == nil {
-			t.Fatal("expected error for unknown action")
-		}
+		must.Error(t, err)
 	})
 }
 
@@ -276,9 +246,7 @@ func TestMatchAction(t *testing.T) {
 func TestPortExprs(t *testing.T) {
 	t.Run("single port", func(t *testing.T) {
 		got, err := portExprs([]string{"22"}, thDstPort, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: thDstPort, Len: 2},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.BigEndian.PutUint16(22)},
@@ -287,9 +255,7 @@ func TestPortExprs(t *testing.T) {
 
 	t.Run("port range", func(t *testing.T) {
 		got, err := portExprs([]string{"80-443"}, thDstPort, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: thDstPort, Len: 2},
 			&expr.Cmp{Op: expr.CmpOpGte, Register: 1, Data: binaryutil.BigEndian.PutUint16(80)},
@@ -299,12 +265,8 @@ func TestPortExprs(t *testing.T) {
 
 	t.Run("empty", func(t *testing.T) {
 		got, err := portExprs(nil, thDstPort, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != nil {
-			t.Fatalf("got %v, want nil", got)
-		}
+		must.NoError(t, err)
+		must.Nil(t, got)
 	})
 }
 
@@ -313,9 +275,7 @@ func TestPortExprs(t *testing.T) {
 func TestAddrExprs(t *testing.T) {
 	t.Run("ipv4 host src", func(t *testing.T) {
 		got, err := addrExprs([]string{"10.0.0.1"}, true, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: ipv4SrcAddr, Len: 4},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{10, 0, 0, 1}},
@@ -324,9 +284,7 @@ func TestAddrExprs(t *testing.T) {
 
 	t.Run("ipv4 host dst", func(t *testing.T) {
 		got, err := addrExprs([]string{"10.0.0.1"}, false, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: ipv4DstAddr, Len: 4},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{10, 0, 0, 1}},
@@ -335,9 +293,7 @@ func TestAddrExprs(t *testing.T) {
 
 	t.Run("ipv6 host src", func(t *testing.T) {
 		got, err := addrExprs([]string{"fd00::1"}, true, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: ipv6SrcAddr, Len: 16},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{
@@ -349,9 +305,7 @@ func TestAddrExprs(t *testing.T) {
 
 	t.Run("ipv4 cidr /8", func(t *testing.T) {
 		got, err := addrExprs([]string{"10.0.0.0/8"}, true, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
+		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: ipv4SrcAddr, Len: 4},
 			&expr.Bitwise{
@@ -365,12 +319,8 @@ func TestAddrExprs(t *testing.T) {
 
 	t.Run("empty", func(t *testing.T) {
 		got, err := addrExprs(nil, true, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != nil {
-			t.Fatalf("got %v, want nil", got)
-		}
+		must.NoError(t, err)
+		must.Nil(t, got)
 	})
 }
 
@@ -392,9 +342,7 @@ func TestBuildExprs_FullRule(t *testing.T) {
 	}
 
 	got, err := buildExprs(r, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	must.NoError(t, err)
 
 	want := []expr.Any{
 		// 1. Family gate: meta nfproto == ipv4
@@ -424,114 +372,80 @@ func TestBuildExprs_FullRule(t *testing.T) {
 
 func TestBaseRulesInputChain(t *testing.T) {
 	rules := baseRules("input")
-	if len(rules) != 3 {
-		t.Fatalf("input chain: got %d base rules, want 3", len(rules))
-	}
+	must.EqOp(t, 3, len(baseRules("input")))
 
 	// Rule 0: ct state established,related accept
 	requireExprs(t, ctStateAcceptExprs(), rules[0].exprs)
-	if string(rules[0].userData) != "__base:ct-accept\x00pf:__base" {
-		t.Fatalf("rule 0 userData: got %q", string(rules[0].userData))
-	}
+	must.EqOp(t, "__base:ct-accept\x00pf:__base", string(rules[0].userData))
 
 	// Rule 1: ct state invalid drop
 	requireExprs(t, ctStateInvalidExprs(), rules[1].exprs)
-	if string(rules[1].userData) != "__base:ct-invalid\x00pf:__base" {
-		t.Fatalf("rule 1 userData: got %q", string(rules[1].userData))
-	}
+	must.EqOp(t, "__base:ct-invalid\x00pf:__base", string(rules[1].userData))
 
 	// Rule 2: iifname "lo" accept
 	requireExprs(t, loAcceptExprs(), rules[2].exprs)
-	if string(rules[2].userData) != "__base:lo-accept\x00pf:__base" {
-		t.Fatalf("rule 2 userData: got %q", string(rules[2].userData))
-	}
+	must.EqOp(t, "__base:lo-accept\x00pf:__base", string(rules[2].userData))
 }
 
 func TestBaseRulesOutputChain(t *testing.T) {
 	rules := baseRules("output")
-	if len(rules) != 2 {
-		t.Fatalf("output chain: got %d base rules, want 2", len(rules))
-	}
+	must.EqOp(t, 2, len(rules))
 
 	// No lo accept for output/forward.
 	for _, r := range rules {
-		if string(r.userData) == "__base:lo-accept\x00pf:__base" {
-			t.Fatal("lo-accept should not appear in output chain")
-		}
+		must.True(t, string(r.userData) != "__base:lo-accept\x00pf:__base")
 	}
 }
 
 func TestBaseRulesForwardChain(t *testing.T) {
 	rules := baseRules("forward")
-	if len(rules) != 2 {
-		t.Fatalf("forward chain: got %d base rules, want 2", len(rules))
-	}
+	must.EqOp(t, 2, len(rules))
 }
 
 func TestBaseRuleCount(t *testing.T) {
-	if got := len(baseRules("input")); got != 3 {
-		t.Fatalf("input: got %d, want 3", got)
-	}
-	if got := len(baseRules("output")); got != 2 {
-		t.Fatalf("output: got %d, want 2", got)
-	}
-	if got := len(baseRules("forward")); got != 2 {
-		t.Fatalf("forward: got %d, want 2", got)
-	}
+	must.EqOp(t, 3, len(baseRules("input")))
+	must.EqOp(t, 2, len(baseRules("output")))
+	must.EqOp(t, 2, len(baseRules("forward")))
 }
 
 func TestCtStateAcceptExprs(t *testing.T) {
 	exprs := ctStateAcceptExprs()
-	if len(exprs) != 4 {
-		t.Fatalf("got %d exprs, want 4", len(exprs))
-	}
+	must.EqOp(t, 4, len(exprs))
 	// Check ct state load
 	ct, ok := exprs[0].(*expr.Ct)
-	if !ok || ct.Key != expr.CtKeySTATE {
-		t.Fatal("first expr should be Ct with CtKeySTATE")
-	}
+	must.True(t, ok)
+	must.EqOp(t, expr.CtKeySTATE, ct.Key)
 	// Check verdict is accept
 	v, ok := exprs[3].(*expr.Verdict)
-	if !ok || v.Kind != expr.VerdictAccept {
-		t.Fatal("last expr should be VerdictAccept")
-	}
+	must.True(t, ok)
+	must.EqOp(t, expr.VerdictAccept, v.Kind)
 }
 
 func TestCtStateInvalidExprs(t *testing.T) {
 	exprs := ctStateInvalidExprs()
-	if len(exprs) != 4 {
-		t.Fatalf("got %d exprs, want 4", len(exprs))
-	}
+	must.EqOp(t, 4, len(exprs))
 	// Check verdict is drop
 	v, ok := exprs[3].(*expr.Verdict)
-	if !ok || v.Kind != expr.VerdictDrop {
-		t.Fatal("last expr should be VerdictDrop")
-	}
+	must.True(t, ok)
+	must.EqOp(t, expr.VerdictDrop, v.Kind)
 }
 
 func TestLoAcceptExprs(t *testing.T) {
 	exprs := loAcceptExprs()
-	if len(exprs) != 3 {
-		t.Fatalf("got %d exprs, want 3", len(exprs))
-	}
+	must.EqOp(t, 3, len(exprs))
 	// Check interface meta load
 	meta, ok := exprs[0].(*expr.Meta)
-	if !ok || meta.Key != expr.MetaKeyIIFNAME {
-		t.Fatal("first expr should be Meta IIFNAME")
-	}
+	must.True(t, ok)
+	must.EqOp(t, expr.MetaKeyIIFNAME, meta.Key)
 	// Check lo name comparison
 	cmp, ok := exprs[1].(*expr.Cmp)
-	if !ok || cmp.Op != expr.CmpOpEq {
-		t.Fatal("second expr should be CmpEq")
-	}
+	must.True(t, ok)
+	must.EqOp(t, expr.CmpOpEq, cmp.Op)
 	wantLo := make([]byte, ifnamsiz)
 	copy(wantLo, "lo")
-	if !reflect.DeepEqual(cmp.Data, wantLo) {
-		t.Fatalf("interface name: got %v, want %v", cmp.Data, wantLo)
-	}
+	must.True(t, reflect.DeepEqual(cmp.Data, wantLo))
 	// Check verdict is accept
 	v, ok := exprs[2].(*expr.Verdict)
-	if !ok || v.Kind != expr.VerdictAccept {
-		t.Fatal("last expr should be VerdictAccept")
-	}
+	must.True(t, ok)
+	must.EqOp(t, expr.VerdictAccept, v.Kind)
 }

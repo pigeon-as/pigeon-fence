@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+
+	"github.com/pigeon-as/pigeon-fence/internal/data"
 )
+
+var _ data.DataSource = (*DataSource)(nil)
 
 // Config is the HCL body schema for the iface data source.
 // Exactly one of Name or IP must be set.
