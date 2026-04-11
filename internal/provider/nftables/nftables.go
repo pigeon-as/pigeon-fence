@@ -74,14 +74,21 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 		return nil, fmt.Errorf("nftables reconcile failed after %d attempts: %w", flushRetries, err)
 	}
 
-	// Audit log: record what changed.
-	ruleNames := make([]string, len(effective))
-	for i, r := range effective {
-		ruleNames[i] = r.Name
+	// Audit log: record what changed. Log both pre-split (user-configured)
+	// and post-split (effective) counts since SplitByFamily can expand
+	// mixed-family rules into separate v4/v6 nftables rules.
+	ruleNames := make([]string, 0, len(effective))
+	seen := make(map[string]bool, len(effective))
+	for _, r := range effective {
+		if !seen[r.Name] {
+			ruleNames = append(ruleNames, r.Name)
+			seen[r.Name] = true
+		}
 	}
 	p.logger.Info("firewall rules applied",
 		"reason", reason,
-		"rule_count", len(effective),
+		"input_rules", len(rules),
+		"effective_rules", len(effective),
 		"rules", ruleNames,
 	)
 

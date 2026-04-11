@@ -10,8 +10,9 @@ import (
 
 // maxIPs is a sanity bound on OVH API responses. A typical OVH account
 // has dozens to low hundreds of IPs. 10 000 is generous enough to never
-// trip in normal use but prevents unbounded memory growth from a
-// misbehaving or compromised API.
+// trip in normal use but prevents an anomalous result from propagating
+// into nftables rule sets. Note: go-ovh handles HTTP and JSON decoding
+// internally, so the full response is already in memory at this point.
 const maxIPs = 10_000
 
 var _ data.DataSource = (*DataSource)(nil)
