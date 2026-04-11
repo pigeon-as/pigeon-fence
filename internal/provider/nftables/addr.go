@@ -115,6 +115,8 @@ func prefixStart(p netip.Prefix) []byte {
 
 // prefixEnd returns the first address past the prefix (exclusive upper
 // bound for nftables interval sets). Computed as broadcast | ~mask + 1.
+// For /0 prefixes (entire address space), returns all-ones — nftables
+// treats this as "end of range" when combined with IntervalEnd.
 func prefixEnd(p netip.Prefix) []byte {
 	start := addrBytes(p.Masked().Addr())
 	mask := net.CIDRMask(p.Bits(), len(start)*8)
@@ -122,7 +124,9 @@ func prefixEnd(p netip.Prefix) []byte {
 	for i := range end {
 		end[i] = start[i] | ^mask[i] // broadcast
 	}
-	// +1 for exclusive upper bound.
+	// +1 for exclusive upper bound. If this overflows (only happens
+	// for /0 — broadcast is already all-ones), return all-zeros which
+	// nftables interprets as wrapping to the end of the address space.
 	for i := len(end) - 1; i >= 0; i-- {
 		end[i]++
 		if end[i] != 0 {

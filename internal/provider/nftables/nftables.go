@@ -73,6 +73,18 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 	if err != nil {
 		return nil, fmt.Errorf("nftables reconcile failed after %d attempts: %w", flushRetries, err)
 	}
+
+	// Audit log: record what changed.
+	ruleNames := make([]string, len(effective))
+	for i, r := range effective {
+		ruleNames[i] = r.Name
+	}
+	p.logger.Info("firewall rules applied",
+		"reason", reason,
+		"rule_count", len(effective),
+		"rules", strings.Join(ruleNames, ", "),
+	)
+
 	return &provider.ReconcileResult{InSync: false, Reason: reason}, nil
 }
 
