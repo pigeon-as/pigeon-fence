@@ -79,7 +79,18 @@ func (r *Runner) reconcile(ctx context.Context) error {
 	}
 
 	for _, e := range r.entries {
-		expanded, err := expandRules(e.rules, resolved, failed, r.logger)
+		// If any rule for this provider references a failed data source,
+		// skip the entire provider. This preserves the existing kernel
+		// rules rather than reconciling a partial rule set that would
+		// remove rules dependent on the failed source.
+		if key, ok := providerRefsFailedSource(e.rules, failed); ok {
+			r.logger.Warn("skipping provider: data source unavailable",
+				"provider", e.provider.Name(), "source", key)
+			errs = append(errs, fmt.Errorf("provider %s not reconciled: data source %s unavailable", e.provider.Name(), key))
+			continue
+		}
+
+		expanded, err := expandRules(e.rules, resolved, r.logger)
 		if err != nil {
 			r.logger.Error("expand rules", "provider", e.provider.Name(), "err", err)
 			errs = append(errs, err)
@@ -101,14 +112,9 @@ func (r *Runner) reconcile(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func expandRules(rules []rule.Rule, resolved map[string][]string, failed map[string]bool, logger *slog.Logger) ([]rule.Rule, error) {
+func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.Logger) ([]rule.Rule, error) {
 	var out []rule.Rule
 	for _, r := range rules {
-		if key, ok := refsFailedSource(r, failed); ok {
-			logger.Warn("rule skipped: data source unavailable", "rule", r.Name, "source", key)
-			continue
-		}
-
 		expanded := r
 		var err error
 		expanded.Source, err = rule.ExpandDataRefs(r.Source, resolved)
@@ -153,17 +159,19 @@ func expandRules(rules []rule.Rule, resolved map[string][]string, failed map[str
 // isDataRef reports whether a value is a data.* reference.
 func isDataRef(v string) bool { return strings.HasPrefix(v, "data.") }
 
-// refsFailedSource reports whether a rule references a data source that failed
-// to resolve. Returns the failed key and true if found.
-func refsFailedSource(r rule.Rule, failed map[string]bool) (string, bool) {
-	for _, v := range r.Source {
-		if failed[v] {
-			return v, true
+// providerRefsFailedSource reports whether any rule in the set references a
+// data source that failed to resolve. Returns the failed key and true if found.
+func providerRefsFailedSource(rules []rule.Rule, failed map[string]bool) (string, bool) {
+	for _, r := range rules {
+		for _, v := range r.Source {
+			if isDataRef(v) && failed[v] {
+				return v, true
+			}
 		}
-	}
-	for _, v := range r.Destination {
-		if failed[v] {
-			return v, true
+		for _, v := range r.Destination {
+			if isDataRef(v) && failed[v] {
+				return v, true
+			}
 		}
 	}
 	return "", false
