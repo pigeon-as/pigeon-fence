@@ -1,11 +1,12 @@
 module github.com/pigeon-as/pigeon-fence
 
-go 1.25.3
+go 1.25.9
 
 require (
 	github.com/google/nftables v0.3.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/ovh/go-ovh v1.9.0
+	github.com/shoenig/test v1.12.2
 	github.com/zclconf/go-cty v1.16.3
 )
 
@@ -17,7 +18,6 @@ require (
 	github.com/mdlayher/socket v0.5.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/shoenig/test v1.12.2 // indirect
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
