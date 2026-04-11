@@ -86,6 +86,7 @@ func (r *Runner) reconcile(ctx context.Context) error {
 		if key, ok := providerRefsFailedSource(e.rules, failed); ok {
 			r.logger.Warn("skipping provider: data source unavailable",
 				"provider", e.provider.Name(), "source", key)
+			errs = append(errs, fmt.Errorf("provider %s not reconciled: data source %s unavailable", e.provider.Name(), key))
 			continue
 		}
 
@@ -163,12 +164,12 @@ func isDataRef(v string) bool { return strings.HasPrefix(v, "data.") }
 func providerRefsFailedSource(rules []rule.Rule, failed map[string]bool) (string, bool) {
 	for _, r := range rules {
 		for _, v := range r.Source {
-			if failed[v] {
+			if isDataRef(v) && failed[v] {
 				return v, true
 			}
 		}
 		for _, v := range r.Destination {
-			if failed[v] {
+			if isDataRef(v) && failed[v] {
 				return v, true
 			}
 		}

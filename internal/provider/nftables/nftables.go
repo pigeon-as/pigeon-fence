@@ -82,7 +82,7 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 	p.logger.Info("firewall rules applied",
 		"reason", reason,
 		"rule_count", len(effective),
-		"rules", strings.Join(ruleNames, ", "),
+		"rules", ruleNames,
 	)
 
 	return &provider.ReconcileResult{InSync: false, Reason: reason}, nil
