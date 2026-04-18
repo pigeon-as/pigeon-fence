@@ -62,14 +62,12 @@ func main() {
 	}
 
 	if *logLevel != "" {
-		cfg.LogLevel = *logLevel
-	}
-	var level slog.Level
-	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		fatal("invalid log-level %q: %v", cfg.LogLevel, err)
+		if err := cfg.LogLevel.UnmarshalText([]byte(*logLevel)); err != nil {
+			fatal("invalid log-level %q: %v", *logLevel, err)
+		}
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
+		Level: cfg.LogLevel,
 	}))
 
 	r, err := runner.New(logger, cfg)

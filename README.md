@@ -49,7 +49,6 @@ pigeon-fence --config=<path> [--once] [--log-level=info]
 | Provider | Description |
 |----------|---------|
 | `nftables` | Linux nftables (rules + reconciliation) |
-| `ovh` | OVH API client (data sources only) |
 
 ## Data Sources
 
@@ -57,7 +56,7 @@ pigeon-fence --config=<path> [--once] [--log-level=info]
 |------|-------------|--------|
 | `dns` | DNS hostname resolution | `hostnames`, optional `nameserver` |
 | `iface` | IPs from a network interface | `name` or `ip` (exactly one) |
-| `ovh_ips` | All IPs from OVH account | Requires `ovh` provider |
+| `ovh_ips` | All IPs from the OVH account | Credentials from `$OVH_*` env vars or `~/.ovh.conf` (go-ovh SDK fallback) |
 
 Referenced in rule `source`/`destination` fields as `data.<type>.<name>`.
 

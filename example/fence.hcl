@@ -1,14 +1,9 @@
 # Example config demonstrating all features:
-# nftables provider, OVH data sources (for shared client), DNS, iface, locals, dynamic blocks, functions.
+# nftables provider, data sources (OVH, DNS, iface), locals, dynamic blocks, functions.
+#
+# OVH credentials come from $OVH_* env vars or ~/.ovh.conf (go-ovh SDK fallback).
 
 provider "nftables" {}
-
-provider "ovh" {
-  endpoint           = "ovh-eu"
-  application_key    = "ak_xxx"
-  application_secret = "as_xxx"
-  consumer_key       = "ck_xxx"
-}
 
 data "ovh_ips" "servers" {}
 

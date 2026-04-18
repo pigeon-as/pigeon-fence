@@ -20,6 +20,17 @@ import (
 )
 
 type Config struct {
+	Locals      []LocalsBlock
+	Providers   []ProviderConfig
+	DataSources []DataConfig
+	Rules       []rule.Rule
+	Interval    time.Duration
+	LogLevel    slog.Level
+}
+
+// rawConfig mirrors Config with HCL tags and string-typed scalars,
+// parsed to time.Duration / slog.Level during Load.
+type rawConfig struct {
 	Locals      []LocalsBlock    `hcl:"locals,block"`
 	Providers   []ProviderConfig `hcl:"provider,block"`
 	DataSources []DataConfig     `hcl:"data,block"`
@@ -35,8 +46,7 @@ type LocalsBlock struct {
 }
 
 type ProviderConfig struct {
-	Type string   `hcl:"type,label"`
-	Body hcl.Body `hcl:",remain"`
+	Type string `hcl:"type,label"`
 }
 
 type DataConfig struct {
@@ -48,12 +58,6 @@ type DataConfig struct {
 // Key returns the HCL reference key for this data source (e.g. "data.ovh_ips.servers").
 func (d DataConfig) Key() string {
 	return "data." + d.Type + "." + d.Name
-}
-
-// IntervalDuration parses the validated interval string.
-func (c Config) IntervalDuration() time.Duration {
-	d, _ := time.ParseDuration(c.Interval)
-	return d
 }
 
 // Load reads HCL config from one or more files or directories.
@@ -76,17 +80,39 @@ func Load(paths ...string) (Config, error) {
 	// Expand dynamic blocks.
 	expanded := dynblock.Expand(body, ectx)
 
-	var cfg Config
-	diags := gohcl.DecodeBody(expanded, ectx, &cfg)
+	var raw rawConfig
+	diags := gohcl.DecodeBody(expanded, ectx, &raw)
 	if diags.HasErrors() {
 		return Config{}, fmt.Errorf("decode config: %s", diags.Error())
 	}
 
-	if cfg.Interval == "" {
-		cfg.Interval = "60s"
+	if raw.Interval == "" {
+		raw.Interval = "60s"
 	}
-	if cfg.LogLevel == "" {
-		cfg.LogLevel = "info"
+	if raw.LogLevel == "" {
+		raw.LogLevel = "info"
+	}
+
+	interval, err := time.ParseDuration(raw.Interval)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid interval: %w", err)
+	}
+	if interval <= 0 {
+		return Config{}, fmt.Errorf("invalid interval %q: must be greater than 0", raw.Interval)
+	}
+
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(raw.LogLevel)); err != nil {
+		return Config{}, fmt.Errorf("invalid log_level %q: %w", raw.LogLevel, err)
+	}
+
+	cfg := Config{
+		Locals:      raw.Locals,
+		Providers:   raw.Providers,
+		DataSources: raw.DataSources,
+		Rules:       raw.Rules,
+		Interval:    interval,
+		LogLevel:    level,
 	}
 
 	if err := validate(cfg); err != nil {
@@ -306,19 +332,6 @@ func topoSortLocals(attrs map[string]*hcl.Attribute) ([]string, error) {
 }
 
 func validate(cfg Config) error {
-	d, err := time.ParseDuration(cfg.Interval)
-	if err != nil {
-		return fmt.Errorf("invalid interval: %w", err)
-	}
-	if d <= 0 {
-		return fmt.Errorf("invalid interval %q: must be greater than 0", cfg.Interval)
-	}
-
-	var l slog.Level
-	if err := l.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		return fmt.Errorf("invalid log_level %q: %w", cfg.LogLevel, err)
-	}
-
 	providers := make(map[string]bool)
 	for _, p := range cfg.Providers {
 		if providers[p.Type] {
@@ -342,75 +355,11 @@ func validate(cfg Config) error {
 			return fmt.Errorf("rule[%d] %q: duplicate rule name", i, r.Name)
 		}
 		ruleNames[r.Name] = true
-
-		if r.Direction == "" {
-			return fmt.Errorf("rule[%d] %q: direction is required", i, r.Name)
-		}
-		if r.Direction != "inbound" && r.Direction != "outbound" && r.Direction != "forward" {
-			return fmt.Errorf("rule[%d] %q: direction must be \"inbound\", \"outbound\", or \"forward\"", i, r.Name)
-		}
-		if r.Action == "" {
-			return fmt.Errorf("rule[%d] %q: action is required", i, r.Name)
-		}
-		if !rule.IsValidAction(r.Action) {
-			return fmt.Errorf("rule[%d] %q: invalid action %q (must be accept, drop, or reject)", i, r.Name, r.Action)
-		}
 		if !providers[r.Provider] {
 			return fmt.Errorf("rule[%d] %q: unknown provider type %q", i, r.Name, r.Provider)
 		}
-
-		if r.Protocol != "" && !rule.IsValidProtocol(r.Protocol) {
-			return fmt.Errorf("rule[%d] %q: invalid protocol %q (must be tcp, udp, icmp, or icmpv6)", i, r.Name, r.Protocol)
-		}
-		// Linux IFNAMSIZ is 16 (including null terminator), so max name is 15 chars.
-		if len(r.InboundInterface) > 15 {
-			return fmt.Errorf("rule[%d] %q: inbound_interface name %q too long; maximum length is 15 characters", i, r.Name, r.InboundInterface)
-		}
-		if len(r.OutboundInterface) > 15 {
-			return fmt.Errorf("rule[%d] %q: outbound_interface name %q too long; maximum length is 15 characters", i, r.Name, r.OutboundInterface)
-		}
-		// Input chains only see inbound interfaces; output chains only see outbound.
-		// Forward chains see both.
-		switch r.Direction {
-		case "inbound":
-			if r.OutboundInterface != "" {
-				return fmt.Errorf("rule[%d] %q: inbound rules may not set outbound_interface", i, r.Name)
-			}
-		case "outbound":
-			if r.InboundInterface != "" {
-				return fmt.Errorf("rule[%d] %q: outbound rules may not set inbound_interface", i, r.Name)
-			}
-		}
-		// Ports only make sense for TCP/UDP — transport header offsets are
-		// meaningless for ICMP/ICMPv6 and would match wrong header bytes.
-		if (len(r.SrcPort) > 0 || len(r.DstPort) > 0) && r.Protocol != "tcp" && r.Protocol != "udp" {
-			return fmt.Errorf("rule[%d] %q: src_port/dst_port require protocol \"tcp\" or \"udp\"", i, r.Name)
-		}
-		for _, p := range r.SrcPort {
-			if _, _, err := rule.ParsePortOrRange(p); err != nil {
-				return fmt.Errorf("rule[%d] %q: invalid src_port %q: %w", i, r.Name, p, err)
-			}
-		}
-		for _, p := range r.DstPort {
-			if _, _, err := rule.ParsePortOrRange(p); err != nil {
-				return fmt.Errorf("rule[%d] %q: invalid dst_port %q: %w", i, r.Name, p, err)
-			}
-		}
-
-		// Validate static address literals (non-data.* refs) at load time.
-		for _, s := range r.Source {
-			if !strings.HasPrefix(s, "data.") {
-				if _, err := rule.ParseAddress(s); err != nil {
-					return fmt.Errorf("rule[%d] %q: invalid source address %q: %w", i, r.Name, s, err)
-				}
-			}
-		}
-		for _, d := range r.Destination {
-			if !strings.HasPrefix(d, "data.") {
-				if _, err := rule.ParseAddress(d); err != nil {
-					return fmt.Errorf("rule[%d] %q: invalid destination address %q: %w", i, r.Name, d, err)
-				}
-			}
+		if err := rule.Validate(r); err != nil {
+			return fmt.Errorf("rule[%d] %q: %w", i, r.Name, err)
 		}
 	}
 

@@ -8,6 +8,5 @@ import "context"
 // source/destination fields. An error aborts the entire reconcile
 // cycle (fail-closed).
 type DataSource interface {
-	Name() string
 	Resolve(ctx context.Context) ([]string, error)
 }

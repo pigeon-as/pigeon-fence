@@ -19,18 +19,17 @@ type Config struct {
 }
 
 type DataSource struct {
-	key    string
 	ifname string // set when Name is used
 	ip     string // set when IP is used
 }
 
-func New(key string, cfg Config) (*DataSource, error) {
+func New(cfg Config) (*DataSource, error) {
 	hasName := cfg.Name != nil && *cfg.Name != ""
 	hasIP := cfg.IP != nil && *cfg.IP != ""
 	if hasName == hasIP {
 		return nil, fmt.Errorf("exactly one of \"name\" or \"ip\" must be set")
 	}
-	s := &DataSource{key: key}
+	s := &DataSource{}
 	if cfg.Name != nil {
 		s.ifname = *cfg.Name
 	}
@@ -39,8 +38,6 @@ func New(key string, cfg Config) (*DataSource, error) {
 	}
 	return s, nil
 }
-
-func (s *DataSource) Name() string { return s.key }
 
 // Resolve returns the IP addresses (without prefix length) assigned to the interface.
 func (s *DataSource) Resolve(_ context.Context) ([]string, error) {
