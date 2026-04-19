@@ -27,37 +27,64 @@ const (
 	ipv6DstAddr uint32 = 24
 )
 
-// matcher returns nftables expressions for one aspect of a rule.
-type matcher func(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]expr.Any, error)
-
-// matchers defines the expression build order. Each matcher appends its
-// expressions; the concatenated result forms a complete nftables rule.
-var matchers = []matcher{
-	matchFamily,
-	matchInboundInterface,
-	matchOutboundInterface,
-	matchProtocol,
-	matchSrcPort,
-	matchDstPort,
-	matchSource,
-	matchDestination,
-	matchAction,
-}
-
+// buildExprs walks the rule fields in a fixed order and emits nftables
+// expressions per concern. Each `match*` helper returns nil when the field
+// is unset. Order matches the semantic chain: family → interface → proto →
+// ports → addresses → verdict. Mirrors the imperative pattern in google/nftables
+// tests; the cross-provider abstraction lives one level up in rule.Rule.
 func buildExprs(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]expr.Any, error) {
 	var exprs []expr.Any
-	for _, m := range matchers {
-		e, err := m(r, conn, table)
-		if err != nil {
-			return nil, err
-		}
-		exprs = append(exprs, e...)
+
+	family, err := matchFamily(r)
+	if err != nil {
+		return nil, err
 	}
+	exprs = append(exprs, family...)
+
+	exprs = append(exprs, matchIface(r.InboundInterface, expr.MetaKeyIIFNAME)...)
+	exprs = append(exprs, matchIface(r.OutboundInterface, expr.MetaKeyOIFNAME)...)
+
+	proto, err := matchProtocol(r)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, proto...)
+
+	srcPort, err := portExprs(r.SrcPort, thSrcPort, conn, table)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, srcPort...)
+
+	dstPort, err := portExprs(r.DstPort, thDstPort, conn, table)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, dstPort...)
+
+	src, err := addrExprs(r.Source, true, conn, table)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, src...)
+
+	dst, err := addrExprs(r.Destination, false, conn, table)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, dst...)
+
+	verdict, err := matchAction(r.Action)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, verdict...)
+
 	return exprs, nil
 }
 
 // matchFamily gates on IPv4 or IPv6 when addresses are present (inet family correctness).
-func matchFamily(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
+func matchFamily(r rule.Rule) ([]expr.Any, error) {
 	family, err := detectFamily(r)
 	if err != nil {
 		return nil, err
@@ -95,31 +122,19 @@ func detectFamily(r rule.Rule) (byte, error) {
 	return 0, nil
 }
 
-func matchInboundInterface(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
-	if r.InboundInterface == "" {
-		return nil, nil
+func matchIface(name string, key expr.MetaKey) []expr.Any {
+	if name == "" {
+		return nil
 	}
-	name := make([]byte, ifnamsiz)
-	copy(name, r.InboundInterface)
+	buf := make([]byte, ifnamsiz)
+	copy(buf, name)
 	return []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: name},
-	}, nil
+		&expr.Meta{Key: key, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: buf},
+	}
 }
 
-func matchOutboundInterface(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
-	if r.OutboundInterface == "" {
-		return nil, nil
-	}
-	name := make([]byte, ifnamsiz)
-	copy(name, r.OutboundInterface)
-	return []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: name},
-	}, nil
-}
-
-func matchProtocol(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
+func matchProtocol(r rule.Rule) ([]expr.Any, error) {
 	if r.Protocol == "" {
 		return nil, nil
 	}
@@ -156,24 +171,8 @@ func matchProtocol(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any
 	}, nil
 }
 
-func matchSrcPort(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]expr.Any, error) {
-	return portExprs(r.SrcPort, thSrcPort, conn, table)
-}
-
-func matchDstPort(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]expr.Any, error) {
-	return portExprs(r.DstPort, thDstPort, conn, table)
-}
-
-func matchSource(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]expr.Any, error) {
-	return addrExprs(r.Source, true, conn, table)
-}
-
-func matchDestination(r rule.Rule, conn *nftables.Conn, table *nftables.Table) ([]expr.Any, error) {
-	return addrExprs(r.Destination, false, conn, table)
-}
-
-func matchAction(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, error) {
-	switch r.Action {
+func matchAction(action string) ([]expr.Any, error) {
+	switch action {
 	case "accept":
 		return []expr.Any{&expr.Verdict{Kind: expr.VerdictAccept}}, nil
 	case "drop":
@@ -181,6 +180,6 @@ func matchAction(r rule.Rule, _ *nftables.Conn, _ *nftables.Table) ([]expr.Any, 
 	case "reject":
 		return []expr.Any{&expr.Reject{}}, nil
 	default:
-		return nil, fmt.Errorf("unknown action %q", r.Action)
+		return nil, fmt.Errorf("unknown action %q", action)
 	}
 }

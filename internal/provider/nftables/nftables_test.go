@@ -96,7 +96,7 @@ func TestMatchFamily(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchFamily(tt.rule, nil, nil)
+			got, err := matchFamily(tt.rule)
 			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
@@ -105,46 +105,24 @@ func TestMatchFamily(t *testing.T) {
 
 // --- Interface ---
 
-func TestMatchInboundInterface(t *testing.T) {
-	tests := []struct {
-		name string
-		rule rule.Rule
-		want []expr.Any
-	}{
-		{"eth0", rule.Rule{InboundInterface: "eth0"}, []expr.Any{
+func TestMatchIface(t *testing.T) {
+	t.Run("inbound eth0", func(t *testing.T) {
+		got := matchIface("eth0", expr.MetaKeyIIFNAME)
+		requireExprs(t, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("eth0")},
-		}},
-		{"empty", rule.Rule{}, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchInboundInterface(tt.rule, nil, nil)
-			must.NoError(t, err)
-			requireExprs(t, tt.want, got)
-		})
-	}
-}
-
-func TestMatchOutboundInterface(t *testing.T) {
-	tests := []struct {
-		name string
-		rule rule.Rule
-		want []expr.Any
-	}{
-		{"eth0", rule.Rule{OutboundInterface: "eth0"}, []expr.Any{
+		}, got)
+	})
+	t.Run("outbound eth0", func(t *testing.T) {
+		got := matchIface("eth0", expr.MetaKeyOIFNAME)
+		requireExprs(t, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("eth0")},
-		}},
-		{"empty", rule.Rule{}, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchOutboundInterface(tt.rule, nil, nil)
-			must.NoError(t, err)
-			requireExprs(t, tt.want, got)
-		})
-	}
+		}, got)
+	})
+	t.Run("empty", func(t *testing.T) {
+		must.Nil(t, matchIface("", expr.MetaKeyIIFNAME))
+	})
 }
 
 // --- Protocol ---
@@ -171,7 +149,7 @@ func TestMatchProtocol(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchProtocol(rule.Rule{Protocol: tt.protocol}, nil, nil)
+			got, err := matchProtocol(rule.Rule{Protocol: tt.protocol})
 			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
@@ -179,7 +157,7 @@ func TestMatchProtocol(t *testing.T) {
 
 	t.Run("icmpv6 explicit", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmpv6"}
-		got, err := matchProtocol(r, nil, nil)
+		got, err := matchProtocol(r)
 		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
@@ -189,19 +167,19 @@ func TestMatchProtocol(t *testing.T) {
 
 	t.Run("icmp with ipv6 errors", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmp", Source: []string{"fd00::1"}}
-		_, err := matchProtocol(r, nil, nil)
+		_, err := matchProtocol(r)
 		must.Error(t, err)
 	})
 
 	t.Run("icmpv6 with ipv4 errors", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmpv6", Source: []string{"10.0.0.1"}}
-		_, err := matchProtocol(r, nil, nil)
+		_, err := matchProtocol(r)
 		must.Error(t, err)
 	})
 
 	t.Run("icmp ipv4 stays ICMP", func(t *testing.T) {
 		r := rule.Rule{Protocol: "icmp", Source: []string{"10.0.0.1"}}
-		got, err := matchProtocol(r, nil, nil)
+		got, err := matchProtocol(r)
 		must.NoError(t, err)
 		requireExprs(t, []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
@@ -210,7 +188,7 @@ func TestMatchProtocol(t *testing.T) {
 	})
 
 	t.Run("unknown returns error", func(t *testing.T) {
-		_, err := matchProtocol(rule.Rule{Protocol: "sctp"}, nil, nil)
+		_, err := matchProtocol(rule.Rule{Protocol: "sctp"})
 		must.Error(t, err)
 	})
 }
@@ -229,14 +207,14 @@ func TestMatchAction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := matchAction(rule.Rule{Action: tt.action}, nil, nil)
+			got, err := matchAction(tt.action)
 			must.NoError(t, err)
 			requireExprs(t, tt.want, got)
 		})
 	}
 
 	t.Run("unknown returns error", func(t *testing.T) {
-		_, err := matchAction(rule.Rule{Action: "bogus"}, nil, nil)
+		_, err := matchAction("bogus")
 		must.Error(t, err)
 	})
 }

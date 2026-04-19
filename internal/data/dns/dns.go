@@ -16,13 +16,12 @@ type Config struct {
 }
 
 type DataSource struct {
-	key       string
 	hostnames []string
 	resolver  net.Resolver
 }
 
-func New(key string, cfg Config) *DataSource {
-	s := &DataSource{key: key, hostnames: cfg.Hostnames}
+func New(cfg Config) *DataSource {
+	s := &DataSource{hostnames: cfg.Hostnames}
 	if cfg.Nameserver != nil && *cfg.Nameserver != "" {
 		nameserver := *cfg.Nameserver
 		s.resolver.PreferGo = true
@@ -33,8 +32,6 @@ func New(key string, cfg Config) *DataSource {
 	}
 	return s
 }
-
-func (s *DataSource) Name() string { return s.key }
 
 func (s *DataSource) Resolve(ctx context.Context) ([]string, error) {
 	var result []string

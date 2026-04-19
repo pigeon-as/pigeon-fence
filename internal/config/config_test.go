@@ -1,9 +1,11 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/shoenig/test/must"
 )
@@ -53,8 +55,8 @@ rule "test" {
 
 	cfg, err := Load(path)
 	must.NoError(t, err)
-	must.EqOp(t, "60s", cfg.Interval)
-	must.EqOp(t, "info", cfg.LogLevel)
+	must.EqOp(t, 60*time.Second, cfg.Interval)
+	must.EqOp(t, slog.LevelInfo, cfg.LogLevel)
 }
 
 func TestLoad_DirectoryMerge(t *testing.T) {
@@ -450,31 +452,6 @@ rule "test" {
 
 	_, err := Load(path)
 	must.NoError(t, err)
-}
-
-func TestValidate_OVHProviderRulePassesConfig(t *testing.T) {
-	// OVH rules pass config validation (provider is declared).
-	// The factory rejects them because OVH has no reconciler.
-	dir := t.TempDir()
-	path := writeFile(t, dir, "fence.hcl", `
-provider "nftables" {}
-provider "ovh" {
-  endpoint           = "ovh-eu"
-  application_key    = "key"
-  application_secret = "secret"
-  consumer_key       = "consumer"
-}
-
-rule "test" {
-  provider  = provider.ovh
-  direction = "inbound"
-  action    = "accept"
-}
-`)
-
-	cfg, err := Load(path)
-	must.NoError(t, err)
-	must.EqOp(t, "ovh", cfg.Rules[0].Provider)
 }
 
 func TestValidate_InvalidPortErrors(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/pigeon-as/pigeon-fence/internal/provider"
@@ -21,34 +22,25 @@ const (
 
 var _ provider.Provider = (*Provider)(nil)
 
-type Config struct {
-	Name   string
-	Logger *slog.Logger
-}
-
 type Provider struct {
-	name      string
 	tableName string
 	logger    *slog.Logger
 }
 
-func New(cfg Config) *Provider {
+func New(logger *slog.Logger) *Provider {
 	return &Provider{
-		name:      cfg.Name,
 		tableName: defaultTableName,
-		logger:    cfg.Logger,
+		logger:    logger,
 	}
 }
 
-func (p *Provider) Name() string { return p.name }
-
-func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.ReconcileResult, error) {
+func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (provider.ReconcileResult, error) {
 	// Split mixed-family rules.
 	var effective []rule.Rule
 	for _, r := range rules {
-		split, err := rule.SplitByFamily(r)
+		split, err := splitByFamily(r)
 		if err != nil {
-			return nil, fmt.Errorf("split rule %q: %w", r.Name, err)
+			return provider.ReconcileResult{}, fmt.Errorf("split rule %q: %w", r.Name, err)
 		}
 		effective = append(effective, split...)
 	}
@@ -63,15 +55,26 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 	conn := &nftables.Conn{}
 	drifted, reason := p.checkDrift(conn, effective, desiredHashes)
 	if !drifted {
-		return &provider.ReconcileResult{InSync: true}, nil
+		return provider.ReconcileResult{InSync: true}, nil
 	}
 
-	// Apply with retry.
-	err := provider.Retry(ctx, p.logger, "nftables flush", flushRetries, func() error {
-		return p.applyRules(effective, desiredHashes)
-	})
+	// Apply with retry: 100ms, 200ms, 400ms backoff.
+	var err error
+	for attempt := 0; attempt < flushRetries; attempt++ {
+		if attempt > 0 {
+			p.logger.Warn("nftables flush retry", "attempt", attempt+1, "err", err)
+			select {
+			case <-ctx.Done():
+				return provider.ReconcileResult{}, ctx.Err()
+			case <-time.After(time.Duration(100*(1<<(attempt-1))) * time.Millisecond):
+			}
+		}
+		if err = p.applyRules(effective, desiredHashes); err == nil {
+			break
+		}
+	}
 	if err != nil {
-		return nil, fmt.Errorf("nftables reconcile failed after %d attempts: %w", flushRetries, err)
+		return provider.ReconcileResult{}, fmt.Errorf("nftables reconcile failed after %d attempts: %w", flushRetries, err)
 	}
 
 	// Audit log: record what changed. Log both pre-split (user-configured)
@@ -92,7 +95,7 @@ func (p *Provider) Reconcile(ctx context.Context, rules []rule.Rule) (*provider.
 		"rules", ruleNames,
 	)
 
-	return &provider.ReconcileResult{InSync: false, Reason: reason}, nil
+	return provider.ReconcileResult{InSync: false, Reason: reason}, nil
 }
 
 // applyRules atomically replaces all rules via a single nftables.Conn and

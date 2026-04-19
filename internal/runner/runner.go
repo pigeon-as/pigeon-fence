@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/pigeon-as/pigeon-fence/internal/config"
@@ -45,7 +43,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		r.logger.Error("initial reconcile", "err", err)
 	}
 
-	ticker := time.NewTicker(r.cfg.IntervalDuration())
+	ticker := time.NewTicker(r.cfg.Interval)
 	defer ticker.Stop()
 
 	for {
@@ -83,29 +81,29 @@ func (r *Runner) reconcile(ctx context.Context) error {
 		// skip the entire provider. This preserves the existing kernel
 		// rules rather than reconciling a partial rule set that would
 		// remove rules dependent on the failed source.
-		if key, ok := providerRefsFailedSource(e.rules, failed); ok {
+		if key, ok := rule.RefsFailedSource(e.rules, failed); ok {
 			r.logger.Warn("skipping provider: data source unavailable",
-				"provider", e.provider.Name(), "source", key)
-			errs = append(errs, fmt.Errorf("provider %s not reconciled: data source %s unavailable", e.provider.Name(), key))
+				"provider", e.name, "source", key)
+			errs = append(errs, fmt.Errorf("provider %s not reconciled: data source %s unavailable", e.name, key))
 			continue
 		}
 
 		expanded, err := expandRules(e.rules, resolved, r.logger)
 		if err != nil {
-			r.logger.Error("expand rules", "provider", e.provider.Name(), "err", err)
+			r.logger.Error("expand rules", "provider", e.name, "err", err)
 			errs = append(errs, err)
 			continue
 		}
 		result, err := e.provider.Reconcile(ctx, expanded)
 		if err != nil {
-			r.logger.Error("reconcile failed", "provider", e.provider.Name(), "err", err)
+			r.logger.Error("reconcile failed", "provider", e.name, "err", err)
 			errs = append(errs, err)
 			continue
 		}
 		if result.InSync {
-			r.logger.Debug("in sync", "provider", e.provider.Name())
+			r.logger.Debug("in sync", "provider", e.name)
 		} else {
-			r.logger.Info("reconciled", "provider", e.provider.Name(), "reason", result.Reason)
+			r.logger.Info("reconciled", "provider", e.name, "reason", result.Reason)
 		}
 	}
 
@@ -115,64 +113,15 @@ func (r *Runner) reconcile(ctx context.Context) error {
 func expandRules(rules []rule.Rule, resolved map[string][]string, logger *slog.Logger) ([]rule.Rule, error) {
 	var out []rule.Rule
 	for _, r := range rules {
-		expanded := r
-		var err error
-		expanded.Source, err = rule.ExpandDataRefs(r.Source, resolved)
+		expanded, skip, err := rule.Expand(r, resolved)
 		if err != nil {
-			return nil, fmt.Errorf("rule %q source: %w", r.Name, err)
+			return nil, fmt.Errorf("rule %q: %w", r.Name, err)
 		}
-		expanded.Destination, err = rule.ExpandDataRefs(r.Destination, resolved)
-		if err != nil {
-			return nil, fmt.Errorf("rule %q destination: %w", r.Name, err)
-		}
-
-		if slices.ContainsFunc(r.Source, isDataRef) && len(expanded.Source) == 0 {
-			logger.Warn("rule skipped: source data refs resolved to empty", "rule", r.Name)
+		if skip {
+			logger.Warn("rule skipped: data refs resolved to empty", "rule", r.Name)
 			continue
 		}
-		if slices.ContainsFunc(r.Destination, isDataRef) && len(expanded.Destination) == 0 {
-			logger.Warn("rule skipped: destination data refs resolved to empty", "rule", r.Name)
-			continue
-		}
-
-		for _, s := range expanded.Source {
-			if _, err := rule.ParseAddress(s); err != nil {
-				return nil, fmt.Errorf("rule %q source: %w", r.Name, err)
-			}
-		}
-		for _, d := range expanded.Destination {
-			if _, err := rule.ParseAddress(d); err != nil {
-				return nil, fmt.Errorf("rule %q destination: %w", r.Name, err)
-			}
-		}
-
-		// Canonicalize order so hash drift detection is stable
-		// regardless of data source return order.
-		slices.Sort(expanded.Source)
-		slices.Sort(expanded.Destination)
-
 		out = append(out, expanded)
 	}
 	return out, nil
-}
-
-// isDataRef reports whether a value is a data.* reference.
-func isDataRef(v string) bool { return strings.HasPrefix(v, "data.") }
-
-// providerRefsFailedSource reports whether any rule in the set references a
-// data source that failed to resolve. Returns the failed key and true if found.
-func providerRefsFailedSource(rules []rule.Rule, failed map[string]bool) (string, bool) {
-	for _, r := range rules {
-		for _, v := range r.Source {
-			if isDataRef(v) && failed[v] {
-				return v, true
-			}
-		}
-		for _, v := range r.Destination {
-			if isDataRef(v) && failed[v] {
-				return v, true
-			}
-		}
-	}
-	return "", false
 }

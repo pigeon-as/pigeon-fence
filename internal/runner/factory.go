@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/hashicorp/hcl/v2/gohcl"
-	ovhsdk "github.com/ovh/go-ovh/ovh"
 	"github.com/pigeon-as/pigeon-fence/internal/config"
 	"github.com/pigeon-as/pigeon-fence/internal/data"
 	"github.com/pigeon-as/pigeon-fence/internal/data/dns"
@@ -15,11 +14,11 @@ import (
 	"github.com/pigeon-as/pigeon-fence/internal/data/ovhip"
 	"github.com/pigeon-as/pigeon-fence/internal/provider"
 	nftprov "github.com/pigeon-as/pigeon-fence/internal/provider/nftables"
-	ovhprov "github.com/pigeon-as/pigeon-fence/internal/provider/ovh"
 	"github.com/pigeon-as/pigeon-fence/internal/rule"
 )
 
 type providerEntry struct {
+	name     string
 	provider provider.Provider
 	rules    []rule.Rule
 }
@@ -34,61 +33,47 @@ type dataEntry struct {
 // add a case here.
 func build(logger *slog.Logger, cfg config.Config) ([]providerEntry, []dataEntry, error) {
 	var entries []providerEntry
-
-	// Shared API clients, created by providers and available to data sources.
-	var ovhClient *ovhsdk.Client
-
 	for _, pc := range cfg.Providers {
 		switch pc.Type {
 		case "nftables":
 			entries = append(entries, providerEntry{
-				provider: nftprov.New(nftprov.Config{
-					Name:   pc.Type,
-					Logger: logger,
-				}),
-				rules: filterRules(cfg.Rules, pc.Type),
+				name:     pc.Type,
+				provider: nftprov.New(logger),
+				rules:    filterRules(cfg.Rules, pc.Type),
 			})
-		case "ovh":
-			// OVH provider is data-source-only. Create the shared API client
-			// for data sources (ovh_ips) but don't register a providerEntry.
-			client, err := ovhprov.NewClient(pc.Body)
-			if err != nil {
-				return nil, nil, fmt.Errorf("provider %q: %w", pc.Type, err)
-			}
-			ovhClient = client
 		default:
 			return nil, nil, fmt.Errorf("unknown provider type %q", pc.Type)
 		}
 	}
 
-	// Data sources — declaration order preserved for deterministic iteration.
 	var sources []dataEntry
 	for _, dc := range cfg.DataSources {
 		var ds data.DataSource
 		switch dc.Type {
 		case "ovh_ips":
-			if ovhClient == nil {
-				return nil, nil, fmt.Errorf("data source %s: requires provider \"ovh\"", dc.Key())
+			s, err := ovhip.New()
+			if err != nil {
+				return nil, nil, fmt.Errorf("data source %s: %w", dc.Key(), err)
 			}
-			ds = ovhip.New(dc.Key(), ovhClient)
+			ds = s
 		case "dns":
 			var dcfg dns.Config
 			diags := gohcl.DecodeBody(dc.Body, nil, &dcfg)
 			if diags.HasErrors() {
 				return nil, nil, fmt.Errorf("data source %s: %s", dc.Key(), diags.Error())
 			}
-			ds = dns.New(dc.Key(), dcfg)
+			ds = dns.New(dcfg)
 		case "iface":
 			var dcfg iface.Config
 			diags := gohcl.DecodeBody(dc.Body, nil, &dcfg)
 			if diags.HasErrors() {
 				return nil, nil, fmt.Errorf("data source %s: %s", dc.Key(), diags.Error())
 			}
-			var err error
-			ds, err = iface.New(dc.Key(), dcfg)
+			s, err := iface.New(dcfg)
 			if err != nil {
 				return nil, nil, fmt.Errorf("data source %s: %w", dc.Key(), err)
 			}
+			ds = s
 		default:
 			return nil, nil, fmt.Errorf("unknown data source type %q", dc.Type)
 		}
@@ -99,24 +84,11 @@ func build(logger *slog.Logger, cfg config.Config) ([]providerEntry, []dataEntry
 	// Reject rules that target a provider without a reconciler.
 	reconcilers := make(map[string]bool, len(entries))
 	for _, e := range entries {
-		reconcilers[e.provider.Name()] = true
+		reconcilers[e.name] = true
 	}
 	for _, r := range cfg.Rules {
 		if !reconcilers[r.ProviderKey()] {
 			return nil, nil, fmt.Errorf("rule %q: provider %q does not support rules", r.Name, r.ProviderKey())
-		}
-	}
-
-	// Run provider-specific rule validation if the provider implements it.
-	for _, e := range entries {
-		v, ok := e.provider.(provider.RuleValidator)
-		if !ok {
-			continue
-		}
-		for _, r := range e.rules {
-			if err := v.ValidateRule(r); err != nil {
-				return nil, nil, fmt.Errorf("rule %q: %w", r.Name, err)
-			}
 		}
 	}
 
