@@ -16,6 +16,9 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
+
+	"github.com/coreos/go-systemd/v22/daemon"
 
 	"github.com/pigeon-as/pigeon-fence/internal/config"
 	"github.com/pigeon-as/pigeon-fence/internal/runner"
@@ -84,8 +87,35 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Notify systemd we're ready. No-op when NOTIFY_SOCKET is unset.
+	if _, err := daemon.SdNotify(false, daemon.SdNotifyReady); err != nil {
+		logger.Warn("sd_notify ready", "err", err)
+	}
+
+	// If WatchdogSec= is set, heartbeat at 1/3 the interval.
+	if interval, err := daemon.SdWatchdogEnabled(false); err == nil && interval > 0 {
+		go heartbeat(ctx, interval/3, logger)
+	}
+
 	logger.Info("starting", "interval", cfg.Interval)
 	if err := r.Run(ctx); err != nil {
 		fatal("run: %v", err)
+	}
+}
+
+// heartbeat pings systemd's watchdog on a fixed interval. Exits when ctx
+// is cancelled.
+func heartbeat(ctx context.Context, period time.Duration, log *slog.Logger) {
+	tick := time.NewTicker(period)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if _, err := daemon.SdNotify(false, daemon.SdNotifyWatchdog); err != nil {
+				log.Warn("sd_notify watchdog", "err", err)
+			}
+		}
 	}
 }
